@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gpu-pytorch-job
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: pytorch-benchmark
+        # Berkelium's local Harbor PyTorch 2.14 + CUDA 13.0 image (supports A40, A100, H100, H200, and B300 Blackwell!)
+        image: harbor.bk.lbl.gov/coder-images/pytorch:a0d801e4
+        command:
+        - python3
+        - -c
+        - |
+          import time, torch
+          assert torch.cuda.is_available(), "CUDA GPU not detected!"
+          name = torch.cuda.get_device_name(0)
+          vram = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+          x = torch.randn((8192, 8192), device="cuda", dtype=torch.bfloat16)
+          torch.cuda.synchronize()
+          t0 = time.perf_counter()
+          for _ in range(10):
+              y = x @ x
+          torch.cuda.synchronize()
+          dt = time.perf_counter() - t0
+          tflops = (2 * (8192**3) * 10) / dt / 1e12
+          print(f"GPU: {name} ({vram:.1f} GiB) | BF16 MatMul: {tflops:.2f} TFLOPS | Exiting cleanly.")
+        resources:
+          requests:
+            cpu: "1"
+            memory: 4Gi
+            nvidia.com/h200: "1"  # Or nvidia.com/a40, nvidia.com/b300, nvidia.com/h100, nvidia.com/a100
+          limits:
+            cpu: "4"
+            memory: 8Gi
+            nvidia.com/h200: "1"

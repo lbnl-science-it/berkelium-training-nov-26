@@ -1,24 +1,25 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# Create failing pod
-kubectl create -f 01-failing-pod.yaml
+kubectl delete pod failing-pod --ignore-not-found
 
-# Wait for pod to fail
-sleep 10
+# Create a pod that exits with a non-zero error code
+kubectl apply -f 01-failing-pod.yaml
 
-# Check pod status
-kubectl get pods
+echo "Waiting for pod to run and fail..."
+kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/failing-pod --timeout=30s
 
-# Get pod logs
-kubectl logs failing-pod
+# Inspect Error status and exit code
+kubectl get pod failing-pod
+kubectl describe pod failing-pod | tail -n 20
 
-# Get previous logs if pod restarted
-kubectl logs failing-pod --previous
-
-# Get logs with timestamps
+echo "=== Container Logs with Timestamps ==="
 kubectl logs failing-pod --timestamps
 
-# Follow logs in real-time (for running pods)
-# kubectl logs -f pod-name
+# Tip: If restartPolicy is Always/OnFailure and a container crashed & restarted, inspect the prior crash with:
+# kubectl logs <pod-name> --previous
 
-# To delete pod: kubectl delete pod failing-pod
+kubectl delete pod failing-pod --ignore-not-found

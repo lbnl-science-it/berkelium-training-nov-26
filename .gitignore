@@ -1,0 +1,9 @@
+# Local / workshop cluster credentials (distribute out-of-band, never commit)
+kubeconfig.yaml
+kubeconfig*.yaml
+*.kubeconfig
+
+# OS & editor files
+.DS_Store
+__pycache__/
+*.pyc

@@ -5,8 +5,15 @@ metadata:
 spec:
   containers:
   - name: cephfs-container
-    image: ubuntu
-    command: ["sleep", "3600"]
+    image: ubuntu:24.04
+    command: ["sh", "-c", "df -h /shared-data && sleep 1800"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
     volumeMounts:
     - name: cephfs-volume
       mountPath: /shared-data

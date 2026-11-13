@@ -1,0 +1,38 @@
+# INTENTIONALLY NON-COMPLIANT MANIFEST FOR POLICY DEBUGGING EXERCISE
+# Contains 4 classic mistakes when migrating manifests from other clusters to Berkelium:
+#   1. Wrong StorageClass 'rook-cephfs' (Berkelium uses 'cephfs' for RWX or 'ceph-rbd' for RWO)
+#   2. Missing resources.limits (and missing memory request)
+#   3. 'sleep infinity' idle reservation (strictly prohibited in batch/GPU workloads!)
+#   4. Forbidden hostPath volume mount (actively blocked by Gatekeeper!)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: broken-pvc
+spec:
+  storageClassName: rook-cephfs
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: broken-hostpath-pod
+spec:
+  restartPolicy: Never
+  containers:
+  - name: trainer
+    image: ubuntu:24.04
+    command: ["sh", "-c", "sleep infinity"]
+    resources:
+      requests:
+        cpu: "4"
+    volumeMounts:
+    - name: host-root
+      mountPath: /mnt/host
+  volumes:
+  - name: host-root
+    hostPath:
+      path: /tmp

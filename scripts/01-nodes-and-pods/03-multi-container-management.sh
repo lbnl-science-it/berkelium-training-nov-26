@@ -1,32 +1,31 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# Create multi-container pod
-kubectl create -f 03-multi-container-pod.yaml
+# Create multi-container pod (nginx + busybox sidecar sharing network namespace)
+kubectl apply -f 03-multi-container-pod.yaml
 
-# Wait for pod to be ready
-kubectl wait --for=condition=Ready pod/multi-container-pod --timeout=60s
+# Wait for both containers in the pod to become Ready
+kubectl wait --for=condition=Ready pod/multi-container-pod --timeout=90s
 
-# Check pod status
-kubectl get pods
+# Check pod status and shared IPv6 address
+kubectl get pod multi-container-pod -o wide
 
-# Get detailed pod information
-kubectl describe pod multi-container-pod
+# Inspect logs from each container using -c
+echo "=== Web-server container logs ==="
+kubectl logs multi-container-pod -c web-server | tail -n 10
 
-# Check pod IP (shared by both containers)
-kubectl get pod -o wide multi-container-pod
-
-# Log into web-server container
-echo "Logging into web-server container:"
-kubectl exec -it multi-container-pod -c web-server -- /bin/bash
-
-# Log into sidecar container (in another terminal)
-echo "To log into sidecar container: kubectl exec -it multi-container-pod -c sidecar -- /bin/sh"
-
-# Check logs from both containers
-echo "Web-server logs:"
-kubectl logs multi-container-pod -c web-server
-
-echo "Sidecar logs:"
+echo "=== Sidecar container logs ==="
 kubectl logs multi-container-pod -c sidecar
 
-# To delete pod: kubectl delete pod multi-container-pod
+# Run a command in a specific container
+kubectl exec multi-container-pod -c web-server -- nginx -v
+
+# Interactive shell tips:
+# kubectl exec -it multi-container-pod -c web-server -- /bin/sh
+# kubectl exec -it multi-container-pod -c sidecar -- /bin/sh
+
+# Clean up pod when finished
+kubectl delete pod multi-container-pod --ignore-not-found

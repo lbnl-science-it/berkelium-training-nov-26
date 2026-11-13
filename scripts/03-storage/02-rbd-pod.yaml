@@ -5,11 +5,18 @@ metadata:
 spec:
   containers:
   - name: rbd-container
-    image: ubuntu
-    command: ["sleep", "3600"]
+    image: ubuntu:24.04
+    command: ["sh", "-c", "df -h /workspace && sleep 1800"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
     volumeMounts:
     - name: rbd-volume
-      mountPath: /data
+      mountPath: /workspace
   volumes:
   - name: rbd-volume
     persistentVolumeClaim:

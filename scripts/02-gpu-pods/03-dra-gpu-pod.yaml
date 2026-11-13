@@ -1,0 +1,64 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: training-gpu-claim
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        # DRA 'firstAvailable' automatically picks the first GPU pool with free capacity!
+        firstAvailable:
+        - name: a40
+          deviceClassName: nvidia-a40
+          allocationMode: ExactCount
+          count: 1
+        - name: h200
+          deviceClassName: nvidia-h200
+          allocationMode: ExactCount
+          count: 1
+        - name: a100
+          deviceClassName: nvidia-a100
+          allocationMode: ExactCount
+          count: 1
+        - name: h100
+          deviceClassName: nvidia-h100
+          allocationMode: ExactCount
+          count: 1
+        - name: b300
+          deviceClassName: nvidia-b300
+          allocationMode: ExactCount
+          count: 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dra-gpu-pod
+  labels:
+    app: dra-gpu-pod
+spec:
+  restartPolicy: Never
+  resourceClaims:
+  - name: gpu
+    resourceClaimTemplateName: training-gpu-claim
+  containers:
+  - name: gpu-container
+    image: nvidia/cuda:12.8.0-base-ubuntu24.04
+    command: ["sh", "-c", "nvidia-smi -L && df -h /dev/shm && sleep 300"]
+    resources:
+      requests:
+        cpu: "1"
+        memory: 4Gi
+      limits:
+        cpu: "2"
+        memory: 8Gi
+      claims:
+      - name: gpu
+    volumeMounts:
+    - name: dshm
+      mountPath: /dev/shm
+  volumes:
+  - name: dshm
+    emptyDir:
+      medium: Memory
+      sizeLimit: 2Gi

@@ -3,15 +3,15 @@ kind: Pod
 metadata:
   name: failing-pod
 spec:
+  restartPolicy: Never
   containers:
   - name: failing-container
-    image: ubuntu
-    command: ["sh", "-c", "echo 'Starting pod' && sleep 5 && echo 'About to fail' && exit 1"]
+    image: ubuntu:24.04
+    command: ["sh", "-c", "echo 'Starting simulation...' && sleep 2 && echo 'ERROR: Missing input dataset /data/input.h5' >&2 && exit 1"]
     resources:
-      limits:
-        memory: 100Mi
-        cpu: 100m
       requests:
-        memory: 100Mi
+        cpu: 50m
+        memory: 64Mi
+      limits:
         cpu: 100m
-  restartPolicy: Never
+        memory: 128Mi

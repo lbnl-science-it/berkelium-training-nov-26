@@ -5,12 +5,12 @@ metadata:
 spec:
   containers:
   - name: mypod
-    image: ubuntu
+    image: ubuntu:24.04
+    command: ["sh", "-c", "echo 'Hello from Berkelium interactive pod!' && uname -a && sleep 1800"]
     resources:
-      limits:
-        memory: 100Mi
-        cpu: 100m
       requests:
-        memory: 100Mi
         cpu: 100m
-    command: ["sh", "-c", "echo 'Im a new pod' && sleep infinity"]
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi

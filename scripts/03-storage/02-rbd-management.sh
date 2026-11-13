@@ -1,26 +1,23 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# Create RBD PVC
-kubectl create -f 01-rbd-pvc.yaml
+# Create Ceph RBD block PVC (ReadWriteOnce - ideal for code, uv/conda, databases)
+kubectl apply -f 01-rbd-pvc.yaml
 
-# Wait for PVC to be bound
-kubectl wait --for=condition=Bound pvc/rbd-pvc --timeout=60s
+# Wait for PVC to bind
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/rbd-pvc --timeout=60s
+kubectl get pvc rbd-pvc
 
-# Check PVC status
-kubectl get pvc
+# Mount RBD PVC into pod
+kubectl apply -f 02-rbd-pod.yaml
+kubectl wait --for=condition=Ready pod/rbd-pod --timeout=90s
 
-# Create RBD pod
-kubectl create -f 02-rbd-pod.yaml
+# Write & verify persistent data on /workspace
+kubectl exec rbd-pod -- sh -c "echo 'Saved on ceph-rbd block volume' > /workspace/rbd-test.txt && ls -lh /workspace && cat /workspace/rbd-test.txt"
 
-# Wait for pod to be ready
-kubectl wait --for=condition=Ready pod/rbd-pod --timeout=60s
-
-# Check pod status
-kubectl get pods -o wide
-
-# Test RBD storage
-kubectl exec rbd-pod -- touch /data/test-file.txt
-kubectl exec rbd-pod -- ls -la /data
-
-# To log into pod: kubectl exec -it rbd-pod -- /bin/bash
-# To delete: kubectl delete pod rbd-pod && kubectl delete pvc rbd-pvc
+# Clean up pod and PVC
+kubectl delete pod rbd-pod --ignore-not-found
+kubectl delete pvc rbd-pvc --ignore-not-found

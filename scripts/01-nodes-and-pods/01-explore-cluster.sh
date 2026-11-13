@@ -1,19 +1,24 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# List cluster nodes
-kubectl get nodes
+echo "=== Current Kubernetes Identity & Context ==="
+kubectl auth whoami
 
-# List pods in current namespace
-kubectl get pods
+echo ""
+echo "=== Berkelium Cluster Nodes (Talos Linux + IPv6) ==="
+kubectl get nodes -o wide
 
-# List deployments in current namespace (if any)
-kubectl get deployments
+echo ""
+echo "=== Namespace Default Resource LimitRange ==="
+kubectl describe limitrange default-limits
 
-# List services in current namespace
-kubectl get services
+echo ""
+echo "=== Active Workloads in Current Namespace ==="
+kubectl get pods,deployments,services
 
-# Get detailed pod information
-kubectl get pods -o wide
-
-# Check recent events
-kubectl get events --sort-by=.metadata.creationTimestamp
+echo ""
+echo "=== Recent Namespace Events ==="
+kubectl get events --sort-by=.metadata.creationTimestamp | tail -n 15

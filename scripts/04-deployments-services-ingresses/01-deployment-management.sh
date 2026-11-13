@@ -1,22 +1,23 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# Create HTTP deployment
-kubectl create -f 01-http-deployment.yaml
+# Create 2-replica HTTP Deployment (note mandatory requests & limits on initContainer + container)
+kubectl apply -f 01-http-deployment.yaml
 
-# Wait for deployment to be ready
+# Wait for Deployment to become Available
 kubectl wait --for=condition=Available deployment/test-http --timeout=120s
 
-# Check deployment status
-kubectl get deployments
-kubectl get pods -o wide
+# Check Deployment & Pod replicas across worker nodes
+kubectl get deployment test-http
+kubectl get pods -l k8s-app=test-http -o wide
 
-# Scale deployment to 3 replicas
+# Scale Deployment up to 3 replicas, then back to 2
 kubectl scale deployment test-http --replicas=3
+kubectl rollout status deployment/test-http --timeout=90s
+kubectl get pods -l k8s-app=test-http -o wide
 
-# Check scaled deployment
-kubectl get pods -o wide
-
-# Scale back to 2 replicas
 kubectl scale deployment test-http --replicas=2
-
-# To delete deployment: kubectl delete deployment test-http
+kubectl rollout status deployment/test-http --timeout=90s

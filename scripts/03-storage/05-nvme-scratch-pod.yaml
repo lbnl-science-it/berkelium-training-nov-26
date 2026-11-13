@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nvme-scratch-pod
+spec:
+  containers:
+  - name: worker
+    image: ubuntu:24.04
+    command:
+    - sh
+    - -c
+    - |
+      echo "=== Node-Local Ephemeral NVMe Scratch (/scratch) ==="
+      df -h /scratch
+      dd if=/dev/zero of=/scratch/temp-cache.bin bs=1M count=256 conv=fdatasync 2>&1
+      ls -lh /scratch/temp-cache.bin
+      sleep 600
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    volumeMounts:
+    - name: scratch-storage
+      mountPath: /scratch
+  volumes:
+  - name: scratch-storage
+    emptyDir:
+      sizeLimit: 5Gi

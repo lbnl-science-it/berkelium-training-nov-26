@@ -1,0 +1,24 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: test-http-route
+spec:
+  hostnames:
+  - training-demo.bk.lbl.gov
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: ingress
+    namespace: gateway
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: test-svc
+      port: 80
+      weight: 1

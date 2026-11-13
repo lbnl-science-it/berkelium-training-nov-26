@@ -3,9 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: cephfs-pvc
 spec:
+  storageClassName: cephfs
   accessModes:
     - ReadWriteMany
   resources:
     requests:
-      storage: 1Gi
-  storageClassName: rook-cephfs
+      storage: 2Gi

@@ -3,9 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: rbd-pvc
 spec:
+  storageClassName: ceph-rbd
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 1Gi
-  storageClassName: rook-ceph-block
+      storage: 2Gi

@@ -1,26 +1,23 @@
 #!/bin/bash
+set -e
+cd "$(dirname "$0")"
+REPO_ROOT="$(cd ../.. && pwd)"
+[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
 
-# Create CephFS PVC
-kubectl create -f 03-cephfs-pvc.yaml
+# Create CephFS shared POSIX PVC (ReadWriteMany - mountable across multiple pods/nodes!)
+kubectl apply -f 03-cephfs-pvc.yaml
 
-# Wait for PVC to be bound
-kubectl wait --for=condition=Bound pvc/cephfs-pvc --timeout=60s
+# Wait for PVC to bind
+kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/cephfs-pvc --timeout=60s
+kubectl get pvc cephfs-pvc
 
-# Check PVC status
-kubectl get pvc
+# Mount CephFS PVC into pod
+kubectl apply -f 04-cephfs-pod.yaml
+kubectl wait --for=condition=Ready pod/cephfs-pod --timeout=90s
 
-# Create CephFS pod
-kubectl create -f 04-cephfs-pod.yaml
+# Write & verify shared file (remember: never install conda/uv directly on cephfs!)
+kubectl exec cephfs-pod -- sh -c 'echo "Shared dataset shard from $(hostname)" > /shared-data/shard-0.txt && ls -lh /shared-data && cat /shared-data/shard-0.txt'
 
-# Wait for pod to be ready
-kubectl wait --for=condition=Ready pod/cephfs-pod --timeout=60s
-
-# Check pod status
-kubectl get pods -o wide
-
-# Test CephFS storage
-kubectl exec cephfs-pod -- touch /shared-data/shared-file.txt
-kubectl exec cephfs-pod -- ls -la /shared-data
-
-# To log into pod: kubectl exec -it cephfs-pod -- /bin/bash
-# To delete: kubectl delete pod cephfs-pod && kubectl delete pvc cephfs-pvc
+# Clean up pod and PVC
+kubectl delete pod cephfs-pod --ignore-not-found
+kubectl delete pvc cephfs-pvc --ignore-not-found

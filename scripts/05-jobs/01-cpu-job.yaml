@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cpu-job
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: cpu-worker
+        image: ubuntu:24.04
+        # Batch Jobs must execute active computation and exit 0 (never 'sleep infinity'!)
+        command: ["bash", "-c", "echo 'Starting Berkelium CPU batch job on '$(hostname) && for i in {1..5}; do echo \"  Step $i/5 at $(date +%T)\"; sleep 1; done && echo 'Batch job completed cleanly!'"]
+        resources:
+          requests:
+            cpu: 250m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
