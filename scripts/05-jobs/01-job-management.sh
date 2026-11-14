@@ -1,21 +1,19 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-kubectl delete job cpu-job --ignore-not-found
+init_exercise "05.1 — Unattended CPU Batch Job" 5
 
-# Submit unattended CPU batch Job
-kubectl apply -f 01-cpu-job.yaml
+step "Inspect the CPU Job manifest (runs active computation & exits 0 — never sleep infinity!)" \
+  "cat 01-cpu-job.yaml"
 
-# Wait for completion
-kubectl wait --for=condition=Complete job/cpu-job --timeout=90s
+step "Submit the unattended CPU batch Job" \
+  "kubectl delete job cpu-job --ignore-not-found && kubectl apply -f 01-cpu-job.yaml"
 
-# Check Job status and output logs
-kubectl get job cpu-job
-kubectl get pods -l job-name=cpu-job
-kubectl logs job/cpu-job
+step "Wait for the Job to complete" \
+  "kubectl wait --for=condition=Complete job/cpu-job --timeout=90s"
 
-# Clean up
-kubectl delete job cpu-job --ignore-not-found
+step "Check Job status and worker output logs" \
+  "kubectl get job cpu-job && kubectl logs job/cpu-job"
+
+step "Clean up the completed Job" \
+  "kubectl delete job cpu-job --ignore-not-found"

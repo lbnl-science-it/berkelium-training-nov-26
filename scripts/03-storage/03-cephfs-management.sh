@@ -1,23 +1,22 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-# Create CephFS shared POSIX PVC (ReadWriteMany - mountable across multiple pods/nodes!)
-kubectl apply -f 03-cephfs-pvc.yaml
+init_exercise "03.3 — CephFS ReadWriteMany Shared POSIX Volume (Datasets & Checkpoints)" 6
 
-# Wait for PVC to bind
-kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/cephfs-pvc --timeout=60s
-kubectl get pvc cephfs-pvc
+step "Inspect the cephfs PVC and Pod manifests" \
+  "cat 03-cephfs-pvc.yaml && echo '---' && cat 04-cephfs-pod.yaml"
 
-# Mount CephFS PVC into pod
-kubectl apply -f 04-cephfs-pod.yaml
-kubectl wait --for=condition=Ready pod/cephfs-pod --timeout=90s
+step "Create the 2Gi ReadWriteMany CephFS PersistentVolumeClaim" \
+  "kubectl apply -f 03-cephfs-pvc.yaml"
 
-# Write & verify shared file (remember: never install conda/uv directly on cephfs!)
-kubectl exec cephfs-pod -- sh -c 'echo "Shared dataset shard from $(hostname)" > /shared-data/shard-0.txt && ls -lh /shared-data && cat /shared-data/shard-0.txt'
+step "Wait for the CephFS PVC to bind" \
+  "kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/cephfs-pvc --timeout=60s && kubectl get pvc cephfs-pvc"
 
-# Clean up pod and PVC
-kubectl delete pod cephfs-pod --ignore-not-found
-kubectl delete pvc cephfs-pvc --ignore-not-found
+step "Mount the CephFS volume at /shared-data inside a Pod" \
+  "kubectl apply -f 04-cephfs-pod.yaml && kubectl wait --for=condition=Ready pod/cephfs-pod --timeout=90s"
+
+step "Write and verify a shared dataset shard (never install conda/pip directly on cephfs!)" \
+  'kubectl exec cephfs-pod -- sh -c '\''echo "Shared dataset shard from $(hostname)" > /shared-data/shard-0.txt && ls -lh /shared-data && cat /shared-data/shard-0.txt'\'''
+
+step "Clean up the Pod and CephFS PVC" \
+  "kubectl delete pod cephfs-pod --ignore-not-found && kubectl delete pvc cephfs-pvc --ignore-not-found"

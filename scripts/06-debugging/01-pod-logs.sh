@@ -1,25 +1,22 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-kubectl delete pod failing-pod --ignore-not-found
+init_exercise "06.1 — Diagnose a Failing Pod (Status, Events & Timestamped Logs)" 6
 
-# Create a pod that exits with a non-zero error code
-kubectl apply -f 01-failing-pod.yaml
+step "Inspect the intentionally failing Pod manifest" \
+  "cat 01-failing-pod.yaml"
 
-echo "Waiting for pod to run and fail..."
-kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/failing-pod --timeout=30s
+step "Submit the failing Pod" \
+  "kubectl delete pod failing-pod --ignore-not-found && kubectl apply -f 01-failing-pod.yaml"
 
-# Inspect Error status and exit code
-kubectl get pod failing-pod
-kubectl describe pod failing-pod | tail -n 20
+step "Wait ~3s for the Pod to run and exit with non-zero error" \
+  "kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/failing-pod --timeout=30s"
 
-echo "=== Container Logs with Timestamps ==="
-kubectl logs failing-pod --timestamps
+step "Inspect Error status, exit code, and Pod events" \
+  "kubectl get pod failing-pod && kubectl describe pod failing-pod | tail -n 20"
 
-# Tip: If restartPolicy is Always/OnFailure and a container crashed & restarted, inspect the prior crash with:
-# kubectl logs <pod-name> --previous
+step "View container stderr/stdout logs with timestamps (--previous shows prior crash if restarted)" \
+  "kubectl logs failing-pod --timestamps"
 
-kubectl delete pod failing-pod --ignore-not-found
+step "Clean up the failed Pod" \
+  "kubectl delete pod failing-pod --ignore-not-found"

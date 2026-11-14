@@ -1,24 +1,22 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-kubectl delete job parallel-sweep-job --ignore-not-found
+init_exercise "05.2 — Indexed Parallel Parameter Sweep (Slurm Job-Array Equivalent)" 6
 
-# Submit Indexed Parallel Parameter Sweep (6 tasks, 3 concurrent workers)
-kubectl apply -f 02-parallel-job.yaml
+step "Inspect the Indexed Job manifest (completions: 6, parallelism: 3, JOB_COMPLETION_INDEX)" \
+  "cat 02-parallel-job.yaml"
 
-# Wait for all 6 indexed completions
-kubectl wait --for=condition=Complete job/parallel-sweep-job --timeout=120s
+step "Submit the 6-task parallel parameter sweep" \
+  "kubectl delete job parallel-sweep-job --ignore-not-found && kubectl apply -f 02-parallel-job.yaml"
 
-kubectl get job parallel-sweep-job
-kubectl get pods -l job-name=parallel-sweep-job
+step "Wait for all 6 indexed ranks (0..5) to complete" \
+  "kubectl wait --for=condition=Complete job/parallel-sweep-job --timeout=120s"
 
-echo "=== Aggregated Parameter Sweep Results Across All Ranks ==="
-for pod in $(kubectl get pods -l job-name=parallel-sweep-job -o name | sort); do
-  kubectl logs "$pod"
-done
+step "List the 6 completed rank Pods" \
+  "kubectl get pods -l job-name=parallel-sweep-job"
 
-# Clean up
-kubectl delete job parallel-sweep-job --ignore-not-found
+step "Aggregate parameter sweep results across all 6 ranks" \
+  'for pod in $(kubectl get pods -l job-name=parallel-sweep-job -o name | sort); do kubectl logs "$pod"; done'
+
+step "Clean up the completed sweep Job" \
+  "kubectl delete job parallel-sweep-job --ignore-not-found"

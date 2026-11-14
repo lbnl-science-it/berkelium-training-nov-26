@@ -1,22 +1,22 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-# Create ResourceClaimTemplate + GPU Pod using Kubernetes Dynamic Resource Allocation (DRA)
-kubectl apply -f 03-dra-gpu-pod.yaml
+init_exercise "02.3 — Allocate a GPU via Kubernetes DRA (firstAvailable)" 6
 
-# Wait for the DRA claim to bind and the pod to become Ready
-kubectl wait --for=condition=Ready pod/dra-gpu-pod --timeout=180s
+step "Inspect ResourceClaimTemplate (firstAvailable across A40/H200/A100/H100/B300) + Pod" \
+  "cat 03-dra-gpu-pod.yaml"
 
-# Inspect the dynamically created ResourceClaim and pod placement
-kubectl get resourceclaims
-kubectl get pod dra-gpu-pod -o wide
+step "Apply the ResourceClaimTemplate and GPU Pod" \
+  "kubectl apply -f 03-dra-gpu-pod.yaml"
 
-# View startup logs (GPU UUID + /dev/shm RAM disk) and run nvidia-smi
-kubectl logs dra-gpu-pod
-kubectl exec dra-gpu-pod -- nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv
+step "Wait for the DRA claim to bind and the Pod to become Ready" \
+  "kubectl wait --for=condition=Ready pod/dra-gpu-pod --timeout=180s"
 
-# Clean up the pod and template so the GPU returns to the pool immediately
-kubectl delete -f 03-dra-gpu-pod.yaml --ignore-not-found
+step "Inspect the bound ResourceClaim and Pod placement" \
+  "kubectl get resourceclaims && kubectl get pod dra-gpu-pod -o wide"
+
+step "Query the allocated GPU model, VRAM, and driver inside the Pod" \
+  "kubectl exec dra-gpu-pod -- nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv"
+
+step "Delete the Pod & ResourceClaimTemplate to return the GPU to the pool immediately" \
+  "kubectl delete -f 03-dra-gpu-pod.yaml --ignore-not-found"

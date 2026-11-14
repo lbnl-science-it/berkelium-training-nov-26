@@ -24,18 +24,18 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 ## Quick Setup (Choose Option A or Option B)
 
-During live workshops, the instructor shares a `kubeconfig.yaml` for the **`training-nov-26`** namespace (or you can generate your own personal kubeconfig anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**). Save it either to `~/.kube/config` or `./kubeconfig.yaml` inside this repo.
+During live workshops, all attendees share the **`training-nov-26`** namespace via `kubeconfig.yaml` (save it either to `./kubeconfig.yaml` inside this repo or `~/.kube/config`). You can also generate your own personal project namespace anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**.
 
 ### Option A (Recommended — Zero Local Setup via Coder Browser Terminal)
 Works from any laptop over standard HTTPS (no local `kubectl` or IPv6 network setup required):
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
 2. Click **Templates** → choose **`Cloud-Native & Systems (Go + Rust)`** (`cloud-native` — starts in seconds with `kubectl` & `k9s` pre-installed) or **`PyTorch / CUDA Deep Learning`** (`cuda`).
 3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace**.
-4. Open **Web Terminal** (or **code-server** VS Code Web) and run:
+4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh` to personalize your YAML resource names (`-<your-name>`):
    ```bash
    cd ~/berkelium-training-nov-26
    export KUBECONFIG="$(pwd)/kubeconfig.yaml"
-   kubectl auth whoami
+   ./setup.sh
    ```
 
 ### Option B (Local Laptop / Workstation Terminal)
@@ -44,13 +44,15 @@ Requires `kubectl` installed and LBNL IPv6 / VPN connectivity to `[2620:83:8000:
 git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git
 cd berkelium-training-nov-26
 export KUBECONFIG="$(pwd)/kubeconfig.yaml"
-kubectl auth whoami
+./setup.sh
 ```
 
-> **Note for Live Group Sessions (`training-nov-26` shared namespace):**
-> If multiple attendees are running exercises simultaneously in `training-nov-26`, either:
-> - Append your initials to `metadata.name` when editing a YAML file (e.g., `name: test-pod-aj`), **or**
-> - Create your own permanent project namespace in 30 seconds at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**!
+### How the Interactive Exercise Scripts Work
+1. **Zero Name Collisions (`./setup.sh`)**: Running `./setup.sh` (auto-detects your Coder username or prompts once) stamps your unique suffix (e.g., `-alice`) directly into all local `.yaml` and `.sh` files (`test-pod-alice`, `test-svc-alice`, `training-demo-alice.bk.lbl.gov`). That means plain `kubectl apply -f ...` works out of the box without colliding with classmates! *(Run `./setup.sh --reset` anytime to restore base names.)*
+2. **Interactive Editable Prompt**: Each `./scripts/.../*.sh` script walks through the exercise step-by-step and **pre-fills the exact `kubectl` command at an editable `$ ` prompt**:
+   - Press **`Enter`** to execute the command, or **edit it inline** first (e.g., change flags, try `kubectl exec -it ... -- /bin/bash`).
+   - Type **`s`** to skip a step or **`q`** (`Ctrl+C`) to quit.
+   - Pass **`--print`** to display all commands without running them, or **`--yes`** to run all steps non-interactively.
 
 ---
 

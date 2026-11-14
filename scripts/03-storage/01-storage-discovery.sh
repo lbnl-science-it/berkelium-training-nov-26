@@ -1,15 +1,10 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-echo "=== Available StorageClasses on Berkelium ==="
-echo "  - ceph-rbd (ReadWriteOnce): High small-file IOPS for code, uv/conda, Git, SQLite/DuckDB"
-echo "  - cephfs   (ReadWriteMany): Shared POSIX filesystem for multi-pod datasets & checkpoints"
-echo ""
-kubectl get storageclass
+init_exercise "03.1 — Discover Ceph StorageClasses & Namespace PVCs" 2
 
-echo ""
-echo "=== Existing PersistentVolumeClaims in Namespace ==="
-kubectl get pvc -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CAPACITY:.status.capacity.storage,ACCESS:.spec.accessModes,STORAGECLASS:.spec.storageClassName
+step "List StorageClasses (ceph-rbd for RWO small-file IOPS vs cephfs for RWX shared datasets)" \
+  "kubectl get storageclass"
+
+step "List PersistentVolumeClaims currently in the shared namespace" \
+  "kubectl get pvc -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,CAPACITY:.status.capacity.storage,ACCESS:.spec.accessModes,STORAGECLASS:.spec.storageClassName"

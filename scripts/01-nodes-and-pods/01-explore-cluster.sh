@@ -1,24 +1,19 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-echo "=== Current Kubernetes Identity & Context ==="
-kubectl auth whoami
+init_exercise "01.1 — Explore Berkelium Cluster, Nodes & LimitRange" 5
 
-echo ""
-echo "=== Berkelium Cluster Nodes (Talos Linux + IPv6) ==="
-kubectl get nodes -o wide
+step "Check your current Kubernetes identity & namespace context" \
+  "kubectl auth whoami"
 
-echo ""
-echo "=== Namespace Default Resource LimitRange ==="
-kubectl describe limitrange default-limits
+step "List Berkelium Talos Linux nodes & IPv6 internal addresses" \
+  "kubectl get nodes -o wide"
 
-echo ""
-echo "=== Active Workloads in Current Namespace ==="
-kubectl get pods,deployments,services
+step "Inspect the namespace LimitRange (default CPU & memory requests/limits)" \
+  "kubectl describe limitrange default-limits"
 
-echo ""
-echo "=== Recent Namespace Events ==="
-kubectl get events --sort-by=.metadata.creationTimestamp | tail -n 15
+step "List active pods, deployments, and services in the shared namespace" \
+  "kubectl get pods,deployments,services"
+
+step "Inspect the most recent events in this namespace" \
+  "kubectl get events --sort-by=.metadata.creationTimestamp | tail -n 15"

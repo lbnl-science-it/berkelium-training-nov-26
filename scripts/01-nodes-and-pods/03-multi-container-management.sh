@@ -1,31 +1,28 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-# Create multi-container pod (nginx + busybox sidecar sharing network namespace)
-kubectl apply -f 03-multi-container-pod.yaml
+init_exercise "01.3 — Multi-Container Pod (Web Server + Sidecar)" 8
 
-# Wait for both containers in the pod to become Ready
-kubectl wait --for=condition=Ready pod/multi-container-pod --timeout=90s
+step "Inspect the multi-container Pod manifest (nginx + busybox sidecar)" \
+  "cat 03-multi-container-pod.yaml"
 
-# Check pod status and shared IPv6 address
-kubectl get pod multi-container-pod -o wide
+step "Create the multi-container Pod (containers share localhost & IPv6 network namespace)" \
+  "kubectl apply -f 03-multi-container-pod.yaml"
 
-# Inspect logs from each container using -c
-echo "=== Web-server container logs ==="
-kubectl logs multi-container-pod -c web-server | tail -n 10
+step "Wait for both containers in the Pod to become Ready" \
+  "kubectl wait --for=condition=Ready pod/multi-container-pod --timeout=90s"
 
-echo "=== Sidecar container logs ==="
-kubectl logs multi-container-pod -c sidecar
+step "Check Pod status (READY 2/2) and node placement" \
+  "kubectl get pod multi-container-pod -o wide"
 
-# Run a command in a specific container
-kubectl exec multi-container-pod -c web-server -- nginx -v
+step "View logs from the 'web-server' container (-c web-server)" \
+  "kubectl logs multi-container-pod -c web-server | tail -n 10"
 
-# Interactive shell tips:
-# kubectl exec -it multi-container-pod -c web-server -- /bin/sh
-# kubectl exec -it multi-container-pod -c sidecar -- /bin/sh
+step "View health-check logs from the 'sidecar' container (-c sidecar)" \
+  "kubectl logs multi-container-pod -c sidecar"
 
-# Clean up pod when finished
-kubectl delete pod multi-container-pod --ignore-not-found
+step "Run a command inside a specific container (-c web-server)" \
+  "kubectl exec multi-container-pod -c web-server -- nginx -v"
+
+step "Clean up the multi-container Pod" \
+  "kubectl delete pod multi-container-pod --ignore-not-found"

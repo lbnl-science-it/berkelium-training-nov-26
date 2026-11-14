@@ -1,7 +1,8 @@
-# Local / workshop cluster credentials (distribute out-of-band, never commit)
+# Local / workshop cluster credentials & per-attendee suffix state
 kubeconfig.yaml
 kubeconfig*.yaml
 *.kubeconfig
+.training-user
 
 # OS & editor files
 .DS_Store

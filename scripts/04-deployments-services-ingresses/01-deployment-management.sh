@@ -1,23 +1,19 @@
 #!/bin/bash
-set -e
-cd "$(dirname "$0")"
-REPO_ROOT="$(cd ../.. && pwd)"
-[ -z "${KUBECONFIG:-}" ] && [ -f "$REPO_ROOT/kubeconfig.yaml" ] && export KUBECONFIG="$REPO_ROOT/kubeconfig.yaml" || true
+source "$(dirname "$0")/../_common.sh" "$@"
 
-# Create 2-replica HTTP Deployment (note mandatory requests & limits on initContainer + container)
-kubectl apply -f 01-http-deployment.yaml
+init_exercise "04.1 — Resilient HTTP Deployment & Scaling" 5
 
-# Wait for Deployment to become Available
-kubectl wait --for=condition=Available deployment/test-http --timeout=120s
+step "Inspect the 2-replica HTTP Deployment manifest (initContainer + container)" \
+  "cat 01-http-deployment.yaml"
 
-# Check Deployment & Pod replicas across worker nodes
-kubectl get deployment test-http
-kubectl get pods -l k8s-app=test-http -o wide
+step "Create the Deployment and wait for replicas to become Available" \
+  "kubectl apply -f 01-http-deployment.yaml && kubectl wait --for=condition=Available deployment/test-http --timeout=120s"
 
-# Scale Deployment up to 3 replicas, then back to 2
-kubectl scale deployment test-http --replicas=3
-kubectl rollout status deployment/test-http --timeout=90s
-kubectl get pods -l k8s-app=test-http -o wide
+step "Check Deployment status and Pod placement across worker nodes" \
+  "kubectl get deployment test-http && kubectl get pods -l k8s-app=test-http -o wide"
 
-kubectl scale deployment test-http --replicas=2
-kubectl rollout status deployment/test-http --timeout=90s
+step "Scale the Deployment up to 3 replicas and watch rollout" \
+  "kubectl scale deployment test-http --replicas=3 && kubectl rollout status deployment/test-http --timeout=90s && kubectl get pods -l k8s-app=test-http -o wide"
+
+step "Scale back down to 2 replicas (keep running for Exercise 04.2)" \
+  "kubectl scale deployment test-http --replicas=2 && kubectl rollout status deployment/test-http --timeout=90s"
