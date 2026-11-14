@@ -64,11 +64,18 @@ spec:
         - name: hub-code
           mountPath: /app
           readOnly: true
+        - name: hub-join
+          mountPath: /etc/hub-join
+          readOnly: true
       volumes:
       - name: hub-code
         configMap:
           name: training-hub-code
           defaultMode: 0555
+      - name: hub-join
+        secret:
+          secretName: training-hub-join
+          optional: true
 ---
 apiVersion: v1
 kind: Service

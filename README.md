@@ -22,30 +22,43 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 ---
 
-## Quick Setup (Choose Option A or Option B)
+## Quick Setup — Configure `kubectl` & Personalize Your Name (2 Minutes)
 
-During live workshops, all attendees share the **`training-nov-26`** namespace via `kubeconfig.yaml` (save it either to `./kubeconfig.yaml` inside this repo or `~/.kube/config`). You can also generate your own personal project namespace anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**.
+> **Security note:** Because this repository is public on GitHub, **no cluster credentials (`kubeconfig.yaml`) are stored in Git**. Instead, `./setup.sh` fetches a temporary workshop `kubeconfig` using the **Workshop Join Code** displayed by the instructor on the opening slide / Zoom chat, and installs it to `~/.kube/config` automatically so plain `kubectl` works in every terminal tab! *(Outside of workshops, generate your own project namespace anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**.)*
 
 ### Option A (Recommended — Zero Local Setup via Coder Browser Terminal)
-Works from any laptop over standard HTTPS (no local `kubectl` or IPv6 network setup required):
+Works from **anywhere** over standard HTTPS (no VPN, no local `kubectl`, and no IPv6 setup required):
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
 2. Click **Templates** → choose **`Cloud-Native & Systems (Go + Rust)`** (`cloud-native` — starts in seconds with `kubectl` & `k9s` pre-installed) or **`PyTorch / CUDA Deep Learning`** (`cuda`).
 3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace**.
-4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh` to personalize your YAML resource names (`-<your-name>`):
+4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh`:
    ```bash
    cd ~/berkelium-training-nov-26
-   export KUBECONFIG="$(pwd)/kubeconfig.yaml"
    ./setup.sh
+   ```
+   - **Prompt 1 (`Workshop Join Code`)**: Enter the short code from the slide / Zoom chat (e.g., `bk-7k9m`). `./setup.sh` downloads `kubeconfig.yaml` from the internal workshop hub and installs `~/.kube/config` (`chmod 600`) automatically!
+   - **Prompt 2 (`Your name/initials`)**: Press **Enter** to accept your auto-detected Coder username (stamps `-<your-name>` onto all YAML/scripts so you never collide with classmates).
+5. Verify `kubectl` works:
+   ```bash
+   kubectl get pods
    ```
 
 ### Option B (Local Laptop / Workstation Terminal)
-Requires `kubectl` installed and LBNL IPv6 / VPN connectivity to `[2620:83:8000:157::f]:6443`:
-```bash
-git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git
-cd berkelium-training-nov-26
-export KUBECONFIG="$(pwd)/kubeconfig.yaml"
-./setup.sh
-```
+Requires `kubectl` installed and **LBNL Wi-Fi or LBNL VPN** connectivity:
+1. Clone this repository and run `./setup.sh`:
+   ```bash
+   git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git
+   cd berkelium-training-nov-26
+   ./setup.sh
+   ```
+2. Enter the **Workshop Join Code** from the slide / Zoom chat *(or paste the path to a downloaded `~/Downloads/kubeconfig.yaml` file or raw `eyJ...` token if shared via LBNL Google Drive / Zoom)*.
+   - If you already have an existing `~/.kube/config` for other clusters, `./setup.sh` backs it up safely to `~/.kube/config.pre-berkelium.bak` first (or lets you keep it untouched and use `export KUBECONFIG="$(pwd)/kubeconfig.yaml"`).
+3. Verify `kubectl` works:
+   ```bash
+   kubectl get pods
+   ```
+
+> **Instructor Pre-Workshop Setup (1 Command):** Before class, connect to LBNL Wi-Fi/VPN and run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to put on your slide + a backup file at `/tmp/berkelium-training-kubeconfig.yaml`.
 
 ### Interactive Quest Lab, Browser Companion & Classroom Hub (Recommended!)
 
