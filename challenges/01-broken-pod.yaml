@@ -1,0 +1,25 @@
+# QUEST 01 CHALLENGE — Fix 2 Bugs in This Pod Manifest!
+#
+# Try applying as-is first:
+#   kubectl apply -f challenges/01-broken-pod.yaml
+#   kubectl get pod quest1-pod
+#
+# Bugs to fix before re-applying (kubectl replace --force -f challenges/01-broken-pod.yaml):
+#   1. Golden Rule #1: Add 'limits:' (cpu: 250m, memory: 256Mi) alongside 'requests:'.
+#   2. Crashing command: Replace 'exit 1' with 'sleep 1800' so the interactive pod stays Running.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quest1-pod
+  labels:
+    berkelium.lbl.gov/quest: q1
+spec:
+  restartPolicy: Never
+  containers:
+  - name: researcher-shell
+    image: ubuntu:24.04
+    command: ["sh", "-c", "echo 'Booting Berkelium pod on '$(hostname) && exit 1"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi

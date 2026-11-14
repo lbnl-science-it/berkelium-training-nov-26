@@ -54,11 +54,16 @@ BASE_NAMES = [
     "test-curl-pod",
     "dra-gpu-pod",
     "failing-pod",
+    "quest1-pod",
+    "quest3-pod",
+    "quest3-pvc",
     "broken-pvc",
     "cephfs-pod",
     "cephfs-pvc",
     "debug-pod",
     "test-http",
+    "boss-job",
+    "boss-pvc",
     "test-pod",
     "test-svc",
     "cpu-job",
@@ -67,13 +72,16 @@ BASE_NAMES = [
 ]
 
 target_files = []
-scripts_dir = os.path.join(repo_root, "scripts")
-for root, _, files in os.walk(scripts_dir):
-    for fn in sorted(files):
-        if fn == "_common.sh":
-            continue
-        if fn.endswith((".yaml", ".sh")):
-            target_files.append(os.path.join(root, fn))
+for subdir in ("scripts", "challenges"):
+    scan_dir = os.path.join(repo_root, subdir)
+    if not os.path.isdir(scan_dir):
+        continue
+    for root, _, files in os.walk(scan_dir):
+        for fn in sorted(files):
+            if fn == "_common.sh":
+                continue
+            if fn.endswith((".yaml", ".sh")):
+                target_files.append(os.path.join(root, fn))
 
 patterns = []
 for base in BASE_NAMES:

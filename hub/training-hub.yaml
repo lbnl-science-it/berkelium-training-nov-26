@@ -1,0 +1,116 @@
+# In-cluster Live Classroom Hub & Attendee Quest Web Server (training-nov-26)
+#
+# Deploy / update with:
+#   ./hub/deploy-hub.sh
+#
+# Three built-in ways to access (no world-readable security exception needed!):
+#   1. Coder Workspace (anywhere via LBNL SSO): run `./lab --web` in Coder terminal (auto-proxied on 8080)
+#   2. Any laptop with kubeconfig:              `kubectl port-forward svc/training-hub 8080:80` -> http://localhost:8080
+#   3. Classroom Projector / LBL Wi-Fi / VPN:   https://training-hub.bk.lbl.gov/?view=classroom
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: training-hub
+  labels:
+    app: training-hub
+    app.kubernetes.io/part-of: berkelium-training-infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: training-hub
+  template:
+    metadata:
+      labels:
+        app: training-hub
+        app.kubernetes.io/part-of: berkelium-training-infra
+    spec:
+      serviceAccountName: training-user
+      containers:
+      - name: hub
+        image: python:3.12-slim
+        command:
+        - python3
+        - /app/lab
+        - --web
+        - --host
+        - "::"
+        - --port
+        - "8080"
+        ports:
+        - name: http
+          containerPort: 8080
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 15
+        volumeMounts:
+        - name: hub-code
+          mountPath: /app
+          readOnly: true
+      volumes:
+      - name: hub-code
+        configMap:
+          name: training-hub-code
+          defaultMode: 0555
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: training-hub
+  labels:
+    app: training-hub
+    app.kubernetes.io/part-of: berkelium-training-infra
+spec:
+  type: ClusterIP
+  selector:
+    app: training-hub
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: training-hub
+  labels:
+    app: training-hub
+    app.kubernetes.io/part-of: berkelium-training-infra
+spec:
+  hostnames:
+  - training-hub.bk.lbl.gov
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: ingress
+    namespace: gateway
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - group: ""
+      kind: Service
+      name: training-hub
+      port: 80
+      weight: 1

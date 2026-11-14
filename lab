@@ -1,0 +1,2630 @@
+#!/usr/bin/env python3
+"""
+Berkelium Interactive Quest Engine, Terminal TUI & Live Classroom Hub.
+
+Zero external Python dependencies (100% Python 3 standard library).
+
+Modes:
+  ./lab                     Interactive Terminal Quest TUI (mouse-copyable!)
+  ./lab --web               Start Browser Quest UI + Classroom Live Dashboard
+                            (Coder auto-proxies port 8080 over HTTPS!)
+  ./lab --check             One-shot CLI verification summary for current user
+  ./lab --board             One-shot CLI Classroom Leaderboard
+  ./lab --demo --web        Run with simulated cluster telemetry (offline preview)
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import concurrent.futures
+import datetime as dt
+import html
+import http.server
+import json
+import os
+import re
+import select
+import shutil
+import socket
+import ssl
+import subprocess
+import sys
+import tempfile
+import termios
+import threading
+import time
+import tty
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(REPO_ROOT, ".training-user")
+DEFAULT_NAMESPACE = "training-nov-26"
+
+# ---------------------------------------------------------------------------
+# Quest Catalog (6 Quests, 11 Live-Verified Cluster Objectives)
+# ---------------------------------------------------------------------------
+
+QUESTS: list[dict[str, Any]] = [
+    {
+        "id": "q1",
+        "num": "01",
+        "title": "Pod Surgery & Multi-Container Sidecars",
+        "duration": "7 min",
+        "module": "01-nodes-and-pods",
+        "why": (
+            "On Berkelium, omitting CPU/memory limits falls back to the namespace LimitRange "
+            "(1 CPU / 1Gi RAM) and causes silent throttling or OOMKills. Standalone interactive "
+            "Pods also auto-terminate after 6 hours."
+        ),
+        "checks": [
+            {
+                "id": "1a",
+                "title": "Fix challenges/01-broken-pod.yaml & get quest1-pod-{u} Running with explicit limits",
+                "detail": "Add explicit resources.limits (cpu + memory) and replace 'exit 1' with 'sleep 1800'.",
+            },
+            {
+                "id": "1b",
+                "title": "Launch 2-container sidecar Pod multi-container-pod-{u} (2/2 Ready)",
+                "detail": "Apply scripts/01-nodes-and-pods/03-multi-container-pod.yaml (nginx + busybox sharing localhost).",
+            },
+        ],
+        "starter_cmds": [
+            "cat challenges/01-broken-pod.yaml",
+            "kubectl apply -f challenges/01-broken-pod.yaml",
+            "kubectl get pod quest1-pod-{u}",
+            "kubectl logs quest1-pod-{u}",
+        ],
+        "hint": (
+            "Open challenges/01-broken-pod.yaml in VS Code (or nano/vim):\n"
+            "1) Change 'exit 1' to 'sleep 1800'\n"
+            "2) Under resources:, add:\n"
+            "     limits:\n"
+            "       cpu: 250m\n"
+            "       memory: 256Mi\n"
+            "3) Replace the crashed pod:  kubectl replace --force -f challenges/01-broken-pod.yaml\n"
+            "4) Then apply:               kubectl apply -f scripts/01-nodes-and-pods/03-multi-container-pod.yaml"
+        ),
+        "solution_cmds": [
+            """cat <<'EOF' | kubectl replace --force -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quest1-pod-{u}
+  labels:
+    berkelium.lbl.gov/quest: q1
+spec:
+  restartPolicy: Never
+  containers:
+  - name: researcher-shell
+    image: ubuntu:24.04
+    command: ["sh", "-c", "echo 'Booting Berkelium pod on '$(hostname) && sleep 1800"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+EOF""",
+            "kubectl apply -f scripts/01-nodes-and-pods/03-multi-container-pod.yaml",
+            "kubectl wait --for=condition=Ready pod/quest1-pod-{u} pod/multi-container-pod-{u} --timeout=90s",
+        ],
+    },
+    {
+        "id": "q2",
+        "num": "02",
+        "title": "GPUs, DRA firstAvailable & Dynamic MIG",
+        "duration": "10 min",
+        "module": "02-gpu-pods",
+        "why": (
+            "Berkelium runs NVIDIA B300 (275GB), H200 (141GB), H100, A100, A40, and AMD MI100 GPUs. "
+            "Kubernetes DRA 'firstAvailable' grabs whichever GPU pool is free, while Dynamic MIG "
+            "carves up to 7 hardware-isolated slices on a single GPU on demand."
+        ),
+        "checks": [
+            {
+                "id": "2a",
+                "title": "Allocate a GPU via DRA (dra-gpu-pod-{u} Running) or nvidia-smi-job-{u} Complete",
+                "detail": "Uses ResourceClaimTemplate 'firstAvailable' across A40/H200/A100/H100/B300 + 2Gi /dev/shm.",
+            },
+            {
+                "id": "2b",
+                "title": "Carve an on-demand Dynamic MIG slice (dynamic-mig-job-{u} Succeeded)",
+                "detail": "Uses deviceClassName: mig.nvidia.com with a CEL selector for 1g.10gb / 1g.18gb / 1g.34gb.",
+            },
+        ],
+        "starter_cmds": [
+            "kubectl get deviceclass",
+            "cat scripts/02-gpu-pods/03-dra-gpu-pod.yaml",
+            "kubectl apply -f scripts/02-gpu-pods/03-dra-gpu-pod.yaml",
+            "cat scripts/02-gpu-pods/04-dynamic-mig-job.yaml",
+            "kubectl apply -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml",
+        ],
+        "hint": (
+            "Watch your DRA ResourceClaims bind in real time:\n"
+            "  kubectl get resourceclaims -w\n"
+            "Once dra-gpu-pod-{u} is Running and dynamic-mig-job-{u} completes, inspect the MIG UUID:\n"
+            "  kubectl logs job/dynamic-mig-job-{u}\n"
+            "Remember to delete dra-gpu-pod-{u} afterwards so your full GPU returns to the shared pool!"
+        ),
+        "solution_cmds": [
+            "kubectl apply -f scripts/02-gpu-pods/03-dra-gpu-pod.yaml",
+            "kubectl delete -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml --ignore-not-found && kubectl apply -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml",
+            "kubectl wait --for=condition=Ready pod/dra-gpu-pod-{u} --timeout=180s",
+            "kubectl wait --for=condition=complete job/dynamic-mig-job-{u} --timeout=180s",
+            "kubectl logs job/dynamic-mig-job-{u}",
+        ],
+    },
+    {
+        "id": "q3",
+        "num": "03",
+        "title": "Storage Fix-It: Ceph RBD, CephFS & NVMe Scratch",
+        "duration": "8 min",
+        "module": "03-storage",
+        "why": (
+            "Choosing the wrong storage tier kills scientific I/O: use 'ceph-rbd' (RWO) for conda/uv/git "
+            "small-file IOPS, 'cephfs' (RWX) for shared multi-pod datasets, and 'emptyDir' for fast "
+            "node-local NVMe scratch (hostPath is blocked by Gatekeeper!)."
+        ),
+        "checks": [
+            {
+                "id": "3a",
+                "title": "Bind a Berkelium Ceph PVC (quest3-pvc-{u}, rbd-pvc-{u}, or cephfs-pvc-{u} Bound)",
+                "detail": "Fix 'storageClassName: rook-cephfs' -> 'ceph-rbd' or 'cephfs'.",
+            },
+            {
+                "id": "3b",
+                "title": "Run Pod with persistent Ceph + emptyDir NVMe scratch (no hostPath!)",
+                "detail": "Get quest3-pod-{u} Running (or run both rbd-pod-{u}/cephfs-pod-{u} + nvme-scratch-pod-{u}).",
+            },
+        ],
+        "starter_cmds": [
+            "kubectl get storageclass",
+            "cat challenges/03-broken-storage.yaml",
+            "kubectl apply --dry-run=server -f challenges/03-broken-storage.yaml",
+        ],
+        "hint": (
+            "Gatekeeper blocks 'hostPath' in challenges/03-broken-storage.yaml, and 'rook-cephfs' doesn't exist!\n"
+            "Edit challenges/03-broken-storage.yaml:\n"
+            "  1) Change 'storageClassName: rook-cephfs' -> 'storageClassName: ceph-rbd'\n"
+            "  2) Replace 'hostPath:\\n      path: /tmp' with:\n"
+            "       emptyDir:\n"
+            "         sizeLimit: 2Gi\n"
+            "Then run:  kubectl apply -f challenges/03-broken-storage.yaml"
+        ),
+        "solution_cmds": [
+            """cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quest3-pvc-{u}
+  labels:
+    berkelium.lbl.gov/quest: q3
+spec:
+  storageClassName: ceph-rbd
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quest3-pod-{u}
+  labels:
+    berkelium.lbl.gov/quest: q3
+spec:
+  restartPolicy: Never
+  containers:
+  - name: io-worker
+    image: ubuntu:24.04
+    command: ["sh", "-c", "df -h /workspace /scratch && sleep 1800"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    volumeMounts:
+    - name: persistent-vol
+      mountPath: /workspace
+    - name: scratch-vol
+      mountPath: /scratch
+  volumes:
+  - name: persistent-vol
+    persistentVolumeClaim:
+      claimName: quest3-pvc-{u}
+  - name: scratch-vol
+    emptyDir:
+      sizeLimit: 2Gi
+EOF""",
+            "kubectl wait --for=condition=Ready pod/quest3-pod-{u} --timeout=90s",
+        ],
+    },
+    {
+        "id": "q4",
+        "num": "04",
+        "title": "Web Services, IPv6 ClusterIP & Gateway HTTPRoute",
+        "duration": "8 min",
+        "module": "04-deployments-services-ingresses",
+        "why": (
+            "Berkelium uses an IPv6 pod/service network and exposes HTTPS web apps via Kubernetes "
+            "Gateway API (HTTPRoute attached to gateway/ingress on *.bk.lbl.gov) instead of legacy Ingress."
+        ),
+        "checks": [
+            {
+                "id": "4a",
+                "title": "Run 2+ replica Deployment test-http-{u} + IPv6 Service test-svc-{u}",
+                "detail": "Deploy scripts/04-deployments-services-ingresses/01-http-deployment.yaml & 03-service.yaml.",
+            },
+            {
+                "id": "4b",
+                "title": "Attach HTTPRoute test-http-route-{u} with status Accepted=True",
+                "detail": "Expose training-demo-{u}.bk.lbl.gov on central Envoy Gateway (gateway/ingress).",
+            },
+        ],
+        "starter_cmds": [
+            "cat scripts/04-deployments-services-ingresses/04-httproute.yaml",
+            "kubectl apply -f scripts/04-deployments-services-ingresses/01-http-deployment.yaml",
+            "kubectl apply -f scripts/04-deployments-services-ingresses/03-service.yaml",
+            "kubectl apply -f scripts/04-deployments-services-ingresses/04-httproute.yaml",
+        ],
+        "hint": (
+            "Apply all three manifests in scripts/04-deployments-services-ingresses/:\n"
+            "  01-http-deployment.yaml, 03-service.yaml, and 04-httproute.yaml\n"
+            "Then inspect the allocated IPv6 ClusterIP and Envoy Gateway acceptance:\n"
+            "  kubectl get svc test-svc-{u}\n"
+            "  kubectl describe httproute test-http-route-{u}"
+        ),
+        "solution_cmds": [
+            "kubectl apply -f scripts/04-deployments-services-ingresses/01-http-deployment.yaml -f scripts/04-deployments-services-ingresses/03-service.yaml -f scripts/04-deployments-services-ingresses/04-httproute.yaml",
+            "kubectl wait --for=condition=Available deployment/test-http-{u} --timeout=120s",
+            "kubectl get svc test-svc-{u} && kubectl get httproute test-http-route-{u}",
+        ],
+    },
+    {
+        "id": "q5",
+        "num": "05",
+        "title": "Indexed Parallel Sweeps & PyTorch GPU Batch Jobs",
+        "duration": "7 min",
+        "module": "05-jobs",
+        "why": (
+            "Kubernetes Indexed Jobs inject JOB_COMPLETION_INDEX (0..N-1) just like Slurm job arrays "
+            "(--array=0-5%3), and unattended GPU batch Jobs exit 0 immediately so GPUs are never hoarded."
+        ),
+        "checks": [
+            {
+                "id": "5a",
+                "title": "Complete all 6 ranks of Indexed Job parallel-sweep-job-{u}",
+                "detail": "Runs 6 hyperparameter ranks (parallelism: 3) using JOB_COMPLETION_INDEX.",
+            },
+            {
+                "id": "5b",
+                "title": "Complete PyTorch CUDA 13.0 BF16 benchmark gpu-pytorch-job-{u}",
+                "detail": "Runs 8192x8192 BF16 matmul TFLOPS benchmark and exits cleanly.",
+            },
+        ],
+        "starter_cmds": [
+            "cat scripts/05-jobs/02-parallel-job.yaml",
+            "kubectl apply -f scripts/05-jobs/02-parallel-job.yaml",
+            "cat scripts/05-jobs/03-gpu-pytorch-job.yaml",
+            "kubectl apply -f scripts/05-jobs/03-gpu-pytorch-job.yaml",
+        ],
+        "hint": (
+            "Submit both batch jobs and watch the pods complete:\n"
+            "  kubectl get pods -l job-name=parallel-sweep-job-{u}\n"
+            "  kubectl logs job/gpu-pytorch-job-{u}"
+        ),
+        "solution_cmds": [
+            "kubectl delete job parallel-sweep-job-{u} gpu-pytorch-job-{u} --ignore-not-found",
+            "kubectl apply -f scripts/05-jobs/02-parallel-job.yaml -f scripts/05-jobs/03-gpu-pytorch-job.yaml",
+            "kubectl wait --for=condition=Complete job/parallel-sweep-job-{u} job/gpu-pytorch-job-{u} --timeout=180s",
+            "kubectl logs job/gpu-pytorch-job-{u}",
+        ],
+    },
+    {
+        "id": "q6",
+        "num": "06",
+        "title": "Final Boss: Fix All 4 Golden Rule Violations",
+        "duration": "8 min",
+        "module": "06-debugging",
+        "why": (
+            "Put everything together: audit a broken manifest migrated from AWS/Slurm (gp2 StorageClass, "
+            "missing limits, hostPath mount, and 'sleep infinity'), fix all 4 bugs—or ask a CBorg + "
+            "Berkelium MCP AI agent to fix it—and run boss-job-{u} to completion!"
+        ),
+        "checks": [
+            {
+                "id": "6a",
+                "title": "Fix challenges/06-boss-job.yaml -> boss-pvc-{u} Bound & boss-job-{u} Succeeded",
+                "detail": "Must use cephfs/ceph-rbd, set explicit cpu+memory limits, use emptyDir, and exit 0 (no sleep infinity).",
+            },
+        ],
+        "starter_cmds": [
+            "python3 scripts/06-debugging/03-audit-manifest.py challenges/06-boss-job.yaml",
+            "cat challenges/06-boss-job.yaml",
+            "kubectl apply --dry-run=server -f challenges/06-boss-job.yaml",
+        ],
+        "hint": (
+            "4 fixes in challenges/06-boss-job.yaml:\n"
+            "  1) storageClassName: gp2  -->  storageClassName: cephfs\n"
+            "  2) Add memory: 256Mi under requests AND limits: { cpu: 500m, memory: 512Mi }\n"
+            "  3) Replace 'sleep infinity' with e.g. 'python3 -c \"print(42*42)\"'\n"
+            "  4) Replace hostPath (/var/tmp) with emptyDir: { sizeLimit: 2Gi }\n"
+            "Re-run 03-audit-manifest.py to verify 0 violations, then kubectl apply -f challenges/06-boss-job.yaml!"
+        ),
+        "solution_cmds": [
+            """cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: boss-pvc-{u}
+  labels:
+    berkelium.lbl.gov/quest: q6
+spec:
+  storageClassName: cephfs
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: boss-job-{u}
+  labels:
+    berkelium.lbl.gov/quest: q6
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: analysis
+        image: python:3.12-slim
+        command: ["python3", "-c", "import os, socket; open('/shared-data/done.txt','w').write(socket.gethostname()); print('Boss quest solved on', socket.gethostname())"]
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: dataset
+          mountPath: /shared-data
+        - name: scratch
+          mountPath: /scratch
+      volumes:
+      - name: dataset
+        persistentVolumeClaim:
+          claimName: boss-pvc-{u}
+      - name: scratch
+        emptyDir:
+          sizeLimit: 2Gi
+EOF""",
+            "kubectl wait --for=condition=Complete job/boss-job-{u} --timeout=90s",
+            "kubectl logs job/boss-job-{u}",
+        ],
+    },
+]
+
+ALL_CHECK_IDS = [chk["id"] for q in QUESTS for chk in q["checks"]]
+
+KNOWN_RESOURCE_PREFIXES = sorted(
+    [
+        "multi-container-pod-",
+        "parallel-sweep-job-",
+        "training-gpu-claim-",
+        "nvme-scratch-pod-",
+        "dynamic-mig-job-",
+        "gpu-pytorch-job-",
+        "mig-slice-claim-",
+        "test-http-route-",
+        "nvidia-smi-job-",
+        "test-curl-pod-",
+        "dra-gpu-pod-",
+        "failing-pod-",
+        "quest1-pod-",
+        "quest3-pod-",
+        "quest3-pvc-",
+        "cephfs-pod-",
+        "cephfs-pvc-",
+        "debug-pod-",
+        "test-http-",
+        "boss-job-",
+        "boss-pvc-",
+        "test-pod-",
+        "test-svc-",
+        "cpu-job-",
+        "rbd-pod-",
+        "rbd-pvc-",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def sanitize_user(raw: str) -> str:
+    s = re.sub(r"@.*$", "", raw.strip().lower())
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:16].rstrip("-")
+    return s
+
+
+def read_local_user() -> str:
+    if os.path.isfile(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return sanitize_user(f.read())
+        except OSError:
+            pass
+    for env_key in ("CODER_WORKSPACE_OWNER_NAME", "CODER_USERNAME"):
+        if os.environ.get(env_key):
+            return sanitize_user(os.environ[env_key])
+    return ""
+
+
+def render_tpl(text: str, user: str) -> str:
+    if user:
+        return text.replace("{u}", user)
+    return text.replace("-{u}", "").replace("{u}", "demo")
+
+
+# ---------------------------------------------------------------------------
+# Lightweight Pure-Python Kubernetes Client (In-Cluster / Kubeconfig / kubectl)
+# ---------------------------------------------------------------------------
+
+def _parse_simple_kubeconfig(path: str) -> dict[str, str] | None:
+    """Extract server, ca PEM, token, and namespace from standard kubeconfig YAML."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return None
+
+    server_m = re.search(r"^\s*server:\s*(\S+)\s*$", content, re.M)
+    token_m = re.search(r"^\s*token:\s*(\S+)\s*$", content, re.M)
+    ca_m = re.search(r"^\s*certificate-authority-data:\s*(\S+)\s*$", content, re.M)
+    ns_m = re.search(r"^\s*namespace:\s*(\S+)\s*$", content, re.M)
+
+    if not server_m or not token_m:
+        return None
+
+    res = {
+        "server": server_m.group(1).strip("'\"").rstrip("/"),
+        "token": token_m.group(1).strip("'\""),
+        "namespace": ns_m.group(1).strip("'\"") if ns_m else DEFAULT_NAMESPACE,
+    }
+    if ca_m:
+        try:
+            res["ca_pem"] = base64.b64decode(ca_m.group(1).strip("'\"")).decode("utf-8")
+        except Exception:
+            pass
+    return res
+
+
+class K8sClient:
+    def __init__(self, demo_mode: bool = False) -> None:
+        self.demo_mode = demo_mode
+        self.mode = "demo" if demo_mode else "uninitialized"
+        self.namespace = os.environ.get("TRAINING_NAMESPACE", DEFAULT_NAMESPACE)
+        self.server = ""
+        self.token = ""
+        self.ssl_ctx: ssl.SSLContext | None = None
+        self.kubeconfig_path = ""
+        self._lock = threading.Lock()
+        self._cache_ts = 0.0
+        self._cache_data: dict[str, Any] | None = None
+        self._nodes_ts = 0.0
+        self._nodes_cache: list[dict[str, Any]] = []
+        self._persisted_lock = threading.Lock()
+        self._persisted_mem: dict[str, set[str]] = {}
+
+        if not demo_mode:
+            self._init_transport()
+
+    def _init_transport(self) -> None:
+        sa_tok = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        sa_ns = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+        if os.path.isfile(sa_tok):
+            try:
+                with open(sa_tok, "r", encoding="utf-8") as f:
+                    self.token = f.read().strip()
+                if os.path.isfile(sa_ns):
+                    with open(sa_ns, "r", encoding="utf-8") as f:
+                        self.namespace = f.read().strip() or self.namespace
+                host = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+                port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+                if ":" in host and not host.startswith("["):
+                    host = f"[{host}]"
+                self.server = f"https://{host}:{port}"
+                ctx = ssl.create_default_context(cafile=sa_ca if os.path.isfile(sa_ca) else None)
+                self.ssl_ctx = ctx
+                self.mode = "in-cluster"
+                return
+            except Exception:
+                pass
+
+        candidates = []
+        if os.environ.get("KUBECONFIG"):
+            candidates.extend(os.environ["KUBECONFIG"].split(os.pathsep))
+        candidates.append(os.path.join(REPO_ROOT, "kubeconfig.yaml"))
+        candidates.append(os.path.expanduser("~/.kube/config"))
+
+        for kc in candidates:
+            if kc and os.path.isfile(kc):
+                self.kubeconfig_path = kc
+                parsed = _parse_simple_kubeconfig(kc)
+                if parsed:
+                    self.server = parsed["server"]
+                    self.token = parsed["token"]
+                    self.namespace = parsed.get("namespace", self.namespace)
+                    ctx = ssl.create_default_context()
+                    if parsed.get("ca_pem"):
+                        ctx.load_verify_locations(cadata=parsed["ca_pem"])
+                    self.ssl_ctx = ctx
+                    self.mode = "rest-kubeconfig"
+                    return
+                if shutil.which("kubectl"):
+                    self.mode = "kubectl"
+                    return
+
+        if shutil.which("kubectl"):
+            self.mode = "kubectl"
+
+    def _rest_request(
+        self,
+        path: str,
+        method: str = "GET",
+        body: dict[str, Any] | None = None,
+        content_type: str = "application/json",
+        timeout: float = 3.5,
+    ) -> dict[str, Any]:
+        url = f"{self.server}{path}"
+        data_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+        req = urllib.request.Request(url, data=data_bytes, method=method)
+        req.add_header("Authorization", f"Bearer {self.token}")
+        req.add_header("Accept", "application/json")
+        if data_bytes is not None:
+            req.add_header("Content-Type", content_type)
+        with urllib.request.urlopen(req, context=self.ssl_ctx, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    def _kubectl_get(self, resource: str, cluster_scoped: bool = False) -> list[dict[str, Any]]:
+        cmd = ["kubectl"]
+        if self.kubeconfig_path:
+            cmd.append(f"--kubeconfig={self.kubeconfig_path}")
+        if not cluster_scoped:
+            cmd.extend(["-n", self.namespace])
+        cmd.extend(["get", resource, "-o", "json", "--request-timeout=4s"])
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=6)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"kubectl get {resource} failed")
+        payload = json.loads(proc.stdout)
+        return payload.get("items", [])
+
+    def _fetch_items(self, api_path: str, kubectl_kind: str, cluster_scoped: bool = False) -> list[dict[str, Any]]:
+        if self.mode in ("in-cluster", "rest-kubeconfig"):
+            data = self._rest_request(api_path)
+            return data.get("items", [])
+        if self.mode == "kubectl":
+            return self._kubectl_get(kubectl_kind, cluster_scoped=cluster_scoped)
+        raise RuntimeError("No Kubernetes credentials found (place kubeconfig.yaml in repo root or set KUBECONFIG).")
+
+    def save_progress(self, user: str, completed_map: dict[str, str]) -> None:
+        if not user or self.demo_mode:
+            return
+        cm_name = f"lab-state-{user}"
+        payload = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": cm_name,
+                "namespace": self.namespace,
+                "labels": {
+                    "app.kubernetes.io/part-of": "berkelium-lab",
+                    "berkelium.lbl.gov/trainee": user,
+                },
+            },
+            "data": {
+                "completed_json": json.dumps(completed_map, sort_keys=True),
+                "updated_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        }
+        try:
+            if self.mode in ("in-cluster", "rest-kubeconfig"):
+                base = f"/api/v1/namespaces/{self.namespace}/configmaps"
+                try:
+                    self._rest_request(
+                        f"{base}/{cm_name}",
+                        method="PATCH",
+                        body={"metadata": payload["metadata"], "data": payload["data"]},
+                        content_type="application/strategic-merge-patch+json",
+                    )
+                except urllib.error.HTTPError as e:
+                    if e.code == 404:
+                        self._rest_request(base, method="POST", body=payload)
+            elif self.mode == "kubectl":
+                cmd = ["kubectl"]
+                if self.kubeconfig_path:
+                    cmd.append(f"--kubeconfig={self.kubeconfig_path}")
+                cmd.extend(["-n", self.namespace, "apply", "-f", "-"])
+                subprocess.run(cmd, input=json.dumps(payload), text=True, capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+    def get_snapshot(self, force: bool = False) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            if not force and self._cache_data is not None and (now - self._cache_ts) < 2.0:
+                return self._cache_data
+
+        if self.demo_mode:
+            snap = _build_demo_snapshot()
+            with self._lock:
+                self._cache_data = snap
+                self._cache_ts = now
+            return snap
+
+        ns = self.namespace
+        tasks: dict[str, tuple[str, str, bool]] = {
+            "pods": (f"/api/v1/namespaces/{ns}/pods", "pods", False),
+            "jobs": (f"/apis/batch/v1/namespaces/{ns}/jobs", "jobs", False),
+            "deployments": (f"/apis/apps/v1/namespaces/{ns}/deployments", "deployments", False),
+            "services": (f"/api/v1/namespaces/{ns}/services", "services", False),
+            "pvcs": (f"/api/v1/namespaces/{ns}/persistentvolumeclaims", "pvc", False),
+            "httproutes": (f"/apis/gateway.networking.k8s.io/v1/namespaces/{ns}/httproutes", "httproutes", False),
+            "resourceclaims": (f"/apis/resource.k8s.io/v1/namespaces/{ns}/resourceclaims", "resourceclaims", False),
+            "configmaps": (
+                f"/api/v1/namespaces/{ns}/configmaps?labelSelector=app.kubernetes.io%2Fpart-of%3Dberkelium-lab",
+                "configmaps",
+                False,
+            ),
+        }
+        fetch_nodes = (now - self._nodes_ts) > 15.0 or not self._nodes_cache
+        if fetch_nodes:
+            tasks["nodes"] = ("/api/v1/nodes", "nodes", True)
+
+        results: dict[str, list[dict[str, Any]]] = {k: [] for k in tasks}
+        errors: list[str] = []
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            futs = {
+                pool.submit(self._fetch_items, path, kind, cscoped): key
+                for key, (path, kind, cscoped) in tasks.items()
+            }
+            for fut, key in futs.items():
+                try:
+                    results[key] = fut.result()
+                except Exception as exc:
+                    if key in ("pods", "jobs"):
+                        errors.append(str(exc))
+
+        if fetch_nodes and results.get("nodes"):
+            self._nodes_cache = results["nodes"]
+            self._nodes_ts = now
+
+        connected = len(errors) == 0
+        snap = self._evaluate_all(
+            connected=connected,
+            error=errors[0] if errors else "",
+            pods=results["pods"],
+            jobs=results["jobs"],
+            deployments=results["deployments"],
+            services=results["services"],
+            pvcs=results["pvcs"],
+            httproutes=results["httproutes"],
+            resourceclaims=results["resourceclaims"],
+            configmaps=results["configmaps"],
+            nodes=self._nodes_cache,
+        )
+        with self._lock:
+            self._cache_data = snap
+            self._cache_ts = now
+        return snap
+
+    def _evaluate_all(
+        self,
+        *,
+        connected: bool,
+        error: str,
+        pods: list[dict[str, Any]],
+        jobs: list[dict[str, Any]],
+        deployments: list[dict[str, Any]],
+        services: list[dict[str, Any]],
+        pvcs: list[dict[str, Any]],
+        httproutes: list[dict[str, Any]],
+        resourceclaims: list[dict[str, Any]],
+        configmaps: list[dict[str, Any]],
+        nodes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        pods_by_name = {p.get("metadata", {}).get("name", ""): p for p in pods}
+        jobs_by_name = {j.get("metadata", {}).get("name", ""): j for j in jobs}
+        deps_by_name = {d.get("metadata", {}).get("name", ""): d for d in deployments}
+        svcs_by_name = {s.get("metadata", {}).get("name", ""): s for s in services}
+        pvcs_by_name = {p.get("metadata", {}).get("name", ""): p for p in pvcs}
+        routes_by_name = {r.get("metadata", {}).get("name", ""): r for r in httproutes}
+
+        # Discover all active trainees from lab-state-* ConfigMaps AND suffixed K8s objects
+        persisted: dict[str, dict[str, str]] = {}
+        users: set[str] = set()
+        local_u = read_local_user()
+        if local_u:
+            users.add(local_u)
+
+        for cm in configmaps:
+            meta = cm.get("metadata", {})
+            labels = meta.get("labels") or {}
+            if labels.get("app.kubernetes.io/part-of") != "berkelium-lab":
+                continue
+            u = sanitize_user(labels.get("berkelium.lbl.gov/trainee", ""))
+            if not u and meta.get("name", "").startswith("lab-state-"):
+                u = sanitize_user(meta["name"][len("lab-state-") :])
+            if u:
+                users.add(u)
+                try:
+                    persisted[u] = json.loads((cm.get("data") or {}).get("completed_json", "{}"))
+                except Exception:
+                    persisted[u] = {}
+
+        all_names = (
+            list(pods_by_name)
+            + list(jobs_by_name)
+            + list(deps_by_name)
+            + list(svcs_by_name)
+            + list(pvcs_by_name)
+            + list(routes_by_name)
+        )
+        for obj_name in all_names:
+            for pfx in KNOWN_RESOURCE_PREFIXES:
+                if obj_name.startswith(pfx):
+                    rest = obj_name[len(pfx) :]
+                    # Ignore random Pod suffixes created by Jobs/ReplicaSets (e.g., cpu-job-alice-9x2k1)
+                    if pfx in ("cpu-job-", "nvidia-smi-job-", "dynamic-mig-job-", "parallel-sweep-job-", "gpu-pytorch-job-", "boss-job-", "test-http-") and "-" in rest:
+                        # Might be a generated pod name; match against known jobs/deployments first
+                        continue
+                    cand = sanitize_user(rest)
+                    if cand and len(cand) <= 16:
+                        users.add(cand)
+                    break
+
+        now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        user_states: dict[str, dict[str, Any]] = {}
+
+        for u in sorted(users):
+            live = _check_user_live(
+                u,
+                pods_by_name=pods_by_name,
+                jobs_by_name=jobs_by_name,
+                deps_by_name=deps_by_name,
+                svcs_by_name=svcs_by_name,
+                pvcs_by_name=pvcs_by_name,
+                routes_by_name=routes_by_name,
+            )
+            saved = dict(persisted.get(u, {}))
+            newly_added = False
+            for cid, is_ok in live.items():
+                if is_ok and cid not in saved:
+                    saved[cid] = now_iso
+                    newly_added = True
+
+            if newly_added and connected:
+                with self._persisted_lock:
+                    known_set = self._persisted_mem.setdefault(u, set())
+                    if not set(saved).issubset(known_set):
+                        known_set.update(saved.keys())
+                        threading.Thread(target=self.save_progress, args=(u, dict(saved)), daemon=True).start()
+
+            quest_done: dict[str, bool] = {}
+            for q in QUESTS:
+                quest_done[q["id"]] = all((c["id"] in saved) for c in q["checks"])
+
+            user_states[u] = {
+                "user": u,
+                "checks": {cid: (cid in saved) for cid in ALL_CHECK_IDS},
+                "live_now": live,
+                "timestamps": saved,
+                "quests": quest_done,
+                "score": sum(1 for cid in ALL_CHECK_IDS if cid in saved),
+                "quests_completed": sum(1 for ok in quest_done.values() if ok),
+            }
+
+        gpu_pools = _summarize_gpu_telemetry(nodes, pods, resourceclaims)
+
+        running_pods = sum(
+            1
+            for p in pods
+            if p.get("status", {}).get("phase") == "Running"
+            and not p.get("metadata", {}).get("name", "").startswith("training-hub-")
+        )
+        active_claims = sum(
+            1
+            for rc in resourceclaims
+            if (rc.get("status", {}).get("allocation") is not None)
+        )
+
+        return {
+            "connected": connected,
+            "mode": self.mode,
+            "namespace": self.namespace,
+            "error": error,
+            "updated_at": now_iso,
+            "total_checks": len(ALL_CHECK_IDS),
+            "users": user_states,
+            "telemetry": {
+                "attendees": len(user_states),
+                "quests_solved_total": sum(st["quests_completed"] for st in user_states.values()),
+                "running_pods": running_pods,
+                "active_dra_claims": active_claims,
+                "total_jobs": len(jobs),
+                "gpu_pools": gpu_pools,
+            },
+        }
+
+
+def _pod_ready_with_explicit_limits(pod: dict[str, Any] | None) -> bool:
+    if not pod:
+        return False
+    if pod.get("status", {}).get("phase") != "Running":
+        return False
+    statuses = pod.get("status", {}).get("containerStatuses") or []
+    if not statuses or not all(cs.get("ready") for cs in statuses):
+        return False
+    ann = (pod.get("metadata", {}).get("annotations") or {}).get("kubernetes.io/limit-ranger", "")
+    if "limit for container" in ann:
+        return False
+    containers = pod.get("spec", {}).get("containers") or []
+    for c in containers:
+        lims = (c.get("resources") or {}).get("limits") or {}
+        if not lims.get("cpu") or not lims.get("memory"):
+            return False
+    return True
+
+
+def _pod_has_no_hostpath_and_has_emptydir(pod: dict[str, Any] | None) -> bool:
+    if not pod:
+        return False
+    vols = pod.get("spec", {}).get("volumes") or []
+    if any("hostPath" in v for v in vols):
+        return False
+    return any("emptyDir" in v for v in vols)
+
+
+def _check_user_live(
+    u: str,
+    *,
+    pods_by_name: dict[str, dict[str, Any]],
+    jobs_by_name: dict[str, dict[str, Any]],
+    deps_by_name: dict[str, dict[str, Any]],
+    svcs_by_name: dict[str, dict[str, Any]],
+    pvcs_by_name: dict[str, dict[str, Any]],
+    routes_by_name: dict[str, dict[str, Any]],
+) -> dict[str, bool]:
+    sfx = f"-{u}" if u else ""
+
+    # 1a: quest1-pod-<u> (or test-pod-<u>) Running with explicit limits
+    q1_pod = pods_by_name.get(f"quest1-pod{sfx}") or pods_by_name.get(f"test-pod{sfx}")
+    c_1a = _pod_ready_with_explicit_limits(q1_pod)
+
+    # 1b: multi-container-pod-<u> 2/2 Ready
+    mc_pod = pods_by_name.get(f"multi-container-pod{sfx}")
+    mc_cs = (mc_pod or {}).get("status", {}).get("containerStatuses") or []
+    c_1b = bool(mc_pod and len(mc_cs) >= 2 and all(cs.get("ready") for cs in mc_cs))
+
+    # 2a: dra-gpu-pod-<u> Running OR nvidia-smi-job-<u> Succeeded
+    dra_pod = pods_by_name.get(f"dra-gpu-pod{sfx}")
+    smi_job = jobs_by_name.get(f"nvidia-smi-job{sfx}")
+    c_2a = bool(
+        (dra_pod and dra_pod.get("status", {}).get("phase") == "Running")
+        or (smi_job and (smi_job.get("status", {}).get("succeeded") or 0) >= 1)
+    )
+
+    # 2b: dynamic-mig-job-<u> Succeeded
+    mig_job = jobs_by_name.get(f"dynamic-mig-job{sfx}")
+    c_2b = bool(mig_job and (mig_job.get("status", {}).get("succeeded") or 0) >= 1)
+
+    # 3a: quest3-pvc-<u>, rbd-pvc-<u>, or cephfs-pvc-<u> Bound on ceph-rbd/cephfs
+    c_3a = False
+    for pvc_base in ("quest3-pvc", "rbd-pvc", "cephfs-pvc"):
+        pvc = pvcs_by_name.get(f"{pvc_base}{sfx}")
+        if pvc and pvc.get("status", {}).get("phase") == "Bound":
+            sc = pvc.get("spec", {}).get("storageClassName", "")
+            if sc in ("ceph-rbd", "cephfs"):
+                c_3a = True
+                break
+
+    # 3b: quest3-pod-<u> Running (with PVC + emptyDir, no hostPath) OR (rbd/cephfs pod + nvme-scratch-pod)
+    q3_pod = pods_by_name.get(f"quest3-pod{sfx}")
+    rbd_or_fs = pods_by_name.get(f"rbd-pod{sfx}") or pods_by_name.get(f"cephfs-pod{sfx}")
+    nvme_pod = pods_by_name.get(f"nvme-scratch-pod{sfx}")
+    c_3b = bool(
+        (
+            q3_pod
+            and q3_pod.get("status", {}).get("phase") == "Running"
+            and _pod_has_no_hostpath_and_has_emptydir(q3_pod)
+        )
+        or (
+            rbd_or_fs
+            and rbd_or_fs.get("status", {}).get("phase") == "Running"
+            and nvme_pod
+            and nvme_pod.get("status", {}).get("phase") in ("Running", "Succeeded")
+        )
+    )
+
+    # 4a: test-http-<u> >= 2 Available replicas + test-svc-<u> ClusterIP
+    dep = deps_by_name.get(f"test-http{sfx}")
+    svc = svcs_by_name.get(f"test-svc{sfx}")
+    c_4a = bool(
+        dep
+        and (dep.get("status", {}).get("availableReplicas") or 0) >= 2
+        and svc
+        and svc.get("spec", {}).get("clusterIP")
+    )
+
+    # 4b: test-http-route-<u> Accepted=True
+    hr = routes_by_name.get(f"test-http-route{sfx}")
+    c_4b = False
+    if hr:
+        for parent in hr.get("status", {}).get("parents") or []:
+            for cond in parent.get("conditions") or []:
+                if cond.get("type") == "Accepted" and cond.get("status") == "True":
+                    c_4b = True
+
+    # 5a: parallel-sweep-job-<u> Indexed >= 6 succeeded
+    sweep = jobs_by_name.get(f"parallel-sweep-job{sfx}")
+    c_5a = bool(
+        sweep
+        and sweep.get("spec", {}).get("completionMode") == "Indexed"
+        and (sweep.get("status", {}).get("succeeded") or 0) >= 6
+    )
+
+    # 5b: gpu-pytorch-job-<u> Succeeded
+    pt_job = jobs_by_name.get(f"gpu-pytorch-job{sfx}")
+    c_5b = bool(pt_job and (pt_job.get("status", {}).get("succeeded") or 0) >= 1)
+
+    # 6a: boss-pvc-<u> Bound + boss-job-<u> Succeeded with explicit limits, no hostPath, no sleep infinity
+    boss_pvc = pvcs_by_name.get(f"boss-pvc{sfx}")
+    boss_job = jobs_by_name.get(f"boss-job{sfx}")
+    c_6a = False
+    if (
+        boss_pvc
+        and boss_pvc.get("status", {}).get("phase") == "Bound"
+        and boss_pvc.get("spec", {}).get("storageClassName") in ("ceph-rbd", "cephfs")
+        and boss_job
+        and (boss_job.get("status", {}).get("succeeded") or 0) >= 1
+    ):
+        pod_spec = (boss_job.get("spec", {}).get("template") or {}).get("spec") or {}
+        vols = pod_spec.get("volumes") or []
+        ctrs = pod_spec.get("containers") or []
+        no_hp = not any("hostPath" in v for v in vols)
+        has_ed = any("emptyDir" in v for v in vols)
+        lims_ok = all(
+            (c.get("resources") or {}).get("limits", {}).get("cpu")
+            and (c.get("resources") or {}).get("limits", {}).get("memory")
+            for c in ctrs
+        )
+        cmd_str = " ".join(" ".join(c.get("command") or []) + " " + " ".join(c.get("args") or []) for c in ctrs)
+        no_sleep = not re.search(r"\bsleep\s+infinity\b", cmd_str)
+        c_6a = bool(no_hp and has_ed and lims_ok and no_sleep)
+
+    return {
+        "1a": c_1a,
+        "1b": c_1b,
+        "2a": c_2a,
+        "2b": c_2b,
+        "3a": c_3a,
+        "3b": c_3b,
+        "4a": c_4a,
+        "4b": c_4b,
+        "5a": c_5a,
+        "5b": c_5b,
+        "6a": c_6a,
+    }
+
+
+def _summarize_gpu_telemetry(
+    nodes: list[dict[str, Any]],
+    pods: list[dict[str, Any]],
+    resourceclaims: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    pools: dict[str, dict[str, Any]] = {}
+    node_to_model: dict[str, str] = {}
+
+    for n in nodes:
+        meta = n.get("metadata", {})
+        labels = meta.get("labels") or {}
+        nname = meta.get("name", "")
+        schedulable = not n.get("spec", {}).get("unschedulable", False)
+        product = labels.get("nvidia.com/gpu.product", "")
+        amd_id = labels.get("amd.com/gpu.device-id", "")
+
+        if product:
+            model = (
+                product.replace("NVIDIA-", "")
+                .replace("-SXM4-80GB", " 80GB")
+                .replace("-80GB-HBM3", " 80GB")
+                .replace("-NVL", " NVL")
+                .replace("-", " ")
+            )
+        elif amd_id:
+            model = "AMD Instinct MI100"
+        else:
+            continue
+
+        cap = n.get("status", {}).get("allocatable") or {}
+        gpu_cnt = 0
+        for k, v in cap.items():
+            if k.startswith(("nvidia.com/", "amd.com/")) and k != "nvidia.com/mig.config":
+                try:
+                    gpu_cnt = max(gpu_cnt, int(v))
+                except ValueError:
+                    pass
+        if gpu_cnt == 0:
+            gpu_cnt = 8 if "B300" in model or "H100" in model or "A100" in model else 4
+
+        node_to_model[nname] = model
+        entry = pools.setdefault(
+            model,
+            {"model": model, "nodes": 0, "schedulable_nodes": 0, "total_gpus": 0, "workshop_active": 0, "mig_slices": 0},
+        )
+        entry["nodes"] += 1
+        if schedulable:
+            entry["schedulable_nodes"] += 1
+            entry["total_gpus"] += gpu_cnt
+
+    for p in pods:
+        if p.get("status", {}).get("phase") != "Running":
+            continue
+        nname = p.get("spec", {}).get("nodeName", "")
+        model = node_to_model.get(nname)
+        if not model or model not in pools:
+            continue
+        has_gpu = False
+        for c in p.get("spec", {}).get("containers") or []:
+            reqs = (c.get("resources") or {}).get("requests") or {}
+            claims = (c.get("resources") or {}).get("claims") or []
+            if claims or any(k.startswith(("nvidia.com/", "amd.com/")) for k in reqs):
+                has_gpu = True
+        if has_gpu:
+            pools[model]["workshop_active"] += 1
+
+    for rc in resourceclaims:
+        alloc = rc.get("status", {}).get("allocation") or {}
+        for dev_res in alloc.get("devices", {}).get("results") or []:
+            if dev_res.get("driver") == "gpu.nvidia.com" and "mig" in (dev_res.get("pool", "") + rc.get("metadata", {}).get("name", "")):
+                for entry in pools.values():
+                    if any(tag in entry["model"] for tag in ("H200", "B300", "A100", "H100")):
+                        entry["mig_slices"] += 1
+                        break
+
+    order = {"B300": 0, "H200": 1, "H100": 2, "A100": 3, "A40": 4, "MI100": 5}
+    return sorted(
+        pools.values(),
+        key=lambda x: next((rank for k, rank in order.items() if k in x["model"]), 99),
+    )
+
+
+def _build_demo_snapshot() -> dict[str, Any]:
+    local_u = read_local_user() or "alice"
+    demo_users = {
+        local_u: ["1a", "1b", "2a", "2b", "3a"],
+        "jchen": ["1a", "1b", "2a", "2b", "3a", "3b", "4a", "4b"],
+        "mpatel": ["1a", "1b", "2a"],
+        "srodriguez": ["1a", "1b", "2a", "2b", "3a", "3b", "4a", "4b", "5a", "5b", "6a"],
+        "klee": ["1a", "1b", "2a", "2b"],
+    }
+    now_iso = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    user_states = {}
+    for u, done_list in demo_users.items():
+        done_set = set(done_list)
+        q_done = {q["id"]: all(c["id"] in done_set for c in q["checks"]) for q in QUESTS}
+        user_states[u] = {
+            "user": u,
+            "checks": {cid: (cid in done_set) for cid in ALL_CHECK_IDS},
+            "live_now": {cid: (cid in done_set) for cid in ALL_CHECK_IDS},
+            "timestamps": {cid: now_iso for cid in done_list},
+            "quests": q_done,
+            "score": len(done_set),
+            "quests_completed": sum(1 for v in q_done.values() if v),
+        }
+    return {
+        "connected": True,
+        "mode": "demo",
+        "namespace": DEFAULT_NAMESPACE,
+        "error": "",
+        "updated_at": now_iso,
+        "total_checks": len(ALL_CHECK_IDS),
+        "users": user_states,
+        "telemetry": {
+            "attendees": len(user_states),
+            "quests_solved_total": sum(st["quests_completed"] for st in user_states.values()),
+            "running_pods": 9,
+            "active_dra_claims": 4,
+            "total_jobs": 7,
+            "gpu_pools": [
+                {"model": "B300 SXM6 275GB", "nodes": 1, "schedulable_nodes": 1, "total_gpus": 8, "workshop_active": 1, "mig_slices": 1},
+                {"model": "H200 NVL 141GB", "nodes": 2, "schedulable_nodes": 2, "total_gpus": 8, "workshop_active": 2, "mig_slices": 2},
+                {"model": "H100 80GB", "nodes": 2, "schedulable_nodes": 2, "total_gpus": 8, "workshop_active": 1, "mig_slices": 0},
+                {"model": "A100 80GB", "nodes": 2, "schedulable_nodes": 2, "total_gpus": 8, "workshop_active": 0, "mig_slices": 0},
+                {"model": "A40 48GB", "nodes": 2, "schedulable_nodes": 2, "total_gpus": 8, "workshop_active": 1, "mig_slices": 0},
+                {"model": "AMD Instinct MI100", "nodes": 3, "schedulable_nodes": 3, "total_gpus": 12, "workshop_active": 0, "mig_slices": 0},
+            ],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Web Server + Modern Accessible Single-Page App (Zero External Dependencies)
+# ---------------------------------------------------------------------------
+
+WEB_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Berkelium Live Quest Lab &amp; Classroom Hub</title>
+<style>
+:root {
+  --bg-light: #f6f8fb;
+  --bg-dark: #0d1117;
+  --surface-light: #ffffff;
+  --surface-dark: #161b22;
+  --surface-2-light: #eef2f8;
+  --surface-2-dark: #1f2630;
+  --border-light: #d0d8e4;
+  --border-dark: #30363d;
+  --text-light: #0f172a;
+  --text-dark: #e6edf3;
+  --muted-light: #475569;
+  --muted-dark: #9198a1;
+  --accent-light: #0057b8;
+  --accent-dark: #4da3ff;
+  --accent-fg-light: #ffffff;
+  --accent-fg-dark: #06182c;
+  --ok-light: #0f7647;
+  --ok-dark: #3fb950;
+  --ok-bg-light: #e6f6ee;
+  --ok-bg-dark: #122b1d;
+  --warn-light: #9a5b00;
+  --warn-dark: #f0b429;
+  --code-bg: #0b0f16;
+  --code-fg: #e6edf3;
+  --code-border: #2b3442;
+
+  --bg: var(--bg-light);
+  --surface: var(--surface-light);
+  --surface-2: var(--surface-2-light);
+  --border: var(--border-light);
+  --text: var(--text-light);
+  --muted: var(--muted-light);
+  --accent: var(--accent-light);
+  --accent-fg: var(--accent-fg-light);
+  --ok: var(--ok-light);
+  --ok-bg: var(--ok-bg-light);
+  --warn: var(--warn-light);
+
+  @media (prefers-color-scheme: dark) {
+    --bg: var(--bg-dark);
+    --surface: var(--surface-dark);
+    --surface-2: var(--surface-2-dark);
+    --border: var(--border-dark);
+    --text: var(--text-dark);
+    --muted: var(--muted-dark);
+    --accent: var(--accent-dark);
+    --accent-fg: var(--accent-fg-dark);
+    --ok: var(--ok-dark);
+    --ok-bg: var(--ok-bg-dark);
+    --warn: var(--warn-dark);
+  }
+
+  @supports (color: light-dark(white, black)) {
+    --bg: light-dark(var(--bg-light), var(--bg-dark));
+    --surface: light-dark(var(--surface-light), var(--surface-dark));
+    --surface-2: light-dark(var(--surface-2-light), var(--surface-2-dark));
+    --border: light-dark(var(--border-light), var(--border-dark));
+    --text: light-dark(var(--text-light), var(--text-dark));
+    --muted: light-dark(var(--muted-light), var(--muted-dark));
+    --accent: light-dark(var(--accent-light), var(--accent-dark));
+    --accent-fg: light-dark(var(--accent-fg-light), var(--accent-fg-dark));
+    --ok: light-dark(var(--ok-light), var(--ok-dark));
+    --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
+    --warn: light-dark(var(--warn-light), var(--warn-dark));
+  }
+
+  color-scheme: light dark;
+  accent-color: var(--accent);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.topbar {
+  background: var(--surface);
+  border-block-end: 1px solid var(--border);
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.brand-badge {
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  letter-spacing: 0.03em;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.user-form {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.user-form label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.user-form input {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.875rem;
+  inline-size: 9.5rem;
+}
+
+.btn {
+  padding: 0.38rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-inline-size: 28px;
+  min-block-size: 28px;
+}
+
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: transparent;
+}
+
+.status-pill {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.status-pill[data-live="true"] {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: var(--ok);
+}
+
+.shell {
+  max-inline-size: 1240px;
+  margin-inline: auto;
+  padding: 1rem 1.25rem 2.5rem;
+}
+
+/* Modern Tabs (single-row horizontal scroller + non-color-only underline) */
+.tablist {
+  display: flex;
+  overflow-x: auto;
+  border-block-end: 1px solid var(--border);
+  gap: 0.25rem;
+  margin-block-end: 1.25rem;
+}
+
+.tablist button {
+  flex: none;
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+}
+
+.tablist button[aria-selected="true"] {
+  color: var(--accent);
+}
+
+.tablist button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 3px solid var(--accent);
+}
+
+.panel-inner {
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* Quest Layout */
+.quest-layout {
+  display: grid;
+  grid-template-columns: minmax(230px, 280px) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (width < 840px) {
+  .quest-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.quest-nav {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.progress-box {
+  padding: 0.5rem 0.5rem 0.75rem;
+  border-block-end: 1px solid var(--border);
+  margin-block-end: 0.35rem;
+}
+
+.progress-bar {
+  block-size: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+  margin-block-start: 0.4rem;
+}
+
+.progress-fill {
+  block-size: 100%;
+  background: var(--ok);
+  transition: inline-size 0.25s ease;
+}
+
+.quest-item-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  inline-size: 100%;
+  text-align: start;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.quest-item-btn:hover {
+  background: var(--surface-2);
+}
+
+.quest-item-btn[aria-current="true"] {
+  background: var(--surface-2);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.q-badge {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  flex: none;
+}
+
+.q-badge[data-done="true"] {
+  color: var(--ok);
+  background: var(--ok-bg);
+  border-color: var(--ok);
+  font-weight: 700;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.quest-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-block-end: 0.5rem;
+}
+
+.quest-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.why-callout {
+  background: var(--surface-2);
+  border-inline-start: 4px solid var(--accent);
+  padding: 0.7rem 0.9rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  margin-block: 0.75rem 1rem;
+}
+
+.checks-list {
+  display: grid;
+  gap: 0.6rem;
+  margin-block-end: 1.15rem;
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.check-row[data-ok="true"] {
+  background: var(--ok-bg);
+  border-color: var(--ok);
+}
+
+.check-icon {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--muted);
+  flex: none;
+}
+
+.check-row[data-ok="true"] .check-icon {
+  color: var(--ok);
+}
+
+.check-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.check-detail {
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+
+/* Dark Code Surface & Copy Button (modern-web-guidance compliant) */
+.code-surface {
+  color-scheme: only dark;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  accent-color: var(--accent-dark);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  padding-inline-end: 4.5rem;
+  margin: 0.45rem 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.copyable {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+}
+
+.copyable .code-surface {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.copyable .copy {
+  flex: none;
+  order: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.copy-button {
+  min-inline-size: 28px;
+  min-block-size: 28px;
+  padding: 0.25rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid #3d4858;
+  background: rgba(22, 27, 34, 0.92);
+  color: #e6edf3;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.copy-button[data-copied] {
+  border-color: #3fb950;
+  color: #3fb950;
+}
+
+.copy .tip {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #3fb950;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.copy-button[data-copied] + .tip,
+.copy-button[data-failed] + .tip {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .copyable {
+    display: block;
+    position: relative;
+  }
+  .copyable .copy {
+    position: absolute;
+    inset-block-start: 0.45rem;
+    inset-inline-end: 0.5rem;
+    flex-direction: row-reverse;
+  }
+  .copyable .copy-button {
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .copyable:hover .copy-button,
+  .copyable:focus-within .copy-button,
+  .copyable .copy-button:focus-visible,
+  .copyable .copy-button[data-copied],
+  .copyable .copy-button[data-failed] {
+    opacity: 1;
+  }
+}
+
+/* Accessible Details Disclosure Accordion */
+.disclosures {
+  display: grid;
+  gap: 0.6rem;
+  margin-block-start: 1rem;
+}
+
+details.disclosure {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  padding: 0.55rem 0.85rem;
+}
+
+details.disclosure > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5ch;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+details.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.disclosure > summary::before {
+  content: "";
+  inline-size: 0.85em;
+  block-size: 0.85em;
+  flex-shrink: 0;
+  background-color: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M3.2 5.5L8 10.3l4.8-4.8 1.1 1.1L8 12.5 2.1 6.6z'/%3E%3C/svg%3E") no-repeat center / contain;
+  rotate: -90deg;
+}
+
+details.disclosure[open] > summary::before {
+  rotate: 0deg;
+}
+
+details.disclosure::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+details.disclosure:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  details.disclosure > summary::before {
+    transition: rotate 0.2s;
+  }
+  details.disclosure::details-content {
+    transition: block-size, content-visibility, display;
+    transition-duration: 0.22s;
+    transition-timing-function: ease-in-out;
+    transition-behavior: allow-discrete;
+  }
+}
+
+.disclosure-body {
+  padding-block-start: 0.65rem;
+  font-size: 0.88rem;
+}
+
+/* Classroom Live Dashboard */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.85rem;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.95rem 1.1rem;
+}
+
+.stat-value {
+  font-size: 1.85rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1.15;
+}
+
+.stat-label {
+  font-size: 0.83rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.gpu-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.gpu-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+}
+
+.gpu-card[data-busy="true"] {
+  border-color: var(--ok);
+}
+
+.gpu-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.gpu-meta {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-block-top: 0.2rem;
+}
+
+/* Responsive Sticky Table */
+.table-wrapper {
+  overflow: auto;
+  max-inline-size: 100%;
+  max-block-size: min(560px, 75vh);
+  container-type: inline-size;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+table.matrix {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.88rem;
+  --label-2: "Q01 Pods";
+  --label-3: "Q02 GPUs";
+  --label-4: "Q03 Storage";
+  --label-5: "Q04 Web";
+  --label-6: "Q05 Jobs";
+  --label-7: "Q06 Boss";
+  --label-8: "Score";
+}
+
+table.matrix caption {
+  text-align: start;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+  border-block-end: 1px solid var(--border);
+}
+
+table.matrix thead {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+
+table.matrix th,
+table.matrix td {
+  padding: 0.6rem 0.75rem;
+  border-block-end: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+table.matrix thead th {
+  background: var(--surface-2);
+  font-weight: 700;
+  color: var(--muted);
+}
+
+table.matrix tbody th {
+  position: sticky;
+  inset-inline-start: 0;
+  background: var(--surface);
+  text-align: start;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@container (width < 640px) {
+  table.matrix, table.matrix thead, table.matrix tbody, table.matrix tr, table.matrix th, table.matrix td {
+    display: block;
+  }
+  table.matrix thead { display: none; }
+  table.matrix tr {
+    margin: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  table.matrix tbody th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 2;
+    background: var(--surface-2);
+  }
+  table.matrix td { text-align: start; }
+  table.matrix td:nth-child(2)::before { content: var(--label-2) ": "; font-weight: 600; }
+  table.matrix td:nth-child(3)::before { content: var(--label-3) ": "; font-weight: 600; }
+  table.matrix td:nth-child(4)::before { content: var(--label-4) ": "; font-weight: 600; }
+  table.matrix td:nth-child(5)::before { content: var(--label-5) ": "; font-weight: 600; }
+  table.matrix td:nth-child(6)::before { content: var(--label-6) ": "; font-weight: 600; }
+  table.matrix td:nth-child(7)::before { content: var(--label-7) ": "; font-weight: 600; }
+  table.matrix td:nth-child(8)::before { content: var(--label-8) ": "; font-weight: 600; }
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-badge">BERKELIUM</span>
+    <h1>Interactive Quest Lab &amp; Live Classroom Hub</h1>
+  </div>
+  <div class="controls">
+    <form class="user-form" id="user-form">
+      <label for="user-input">Attendee Suffix:</label>
+      <input id="user-input" name="user" type="text" placeholder="e.g. alice" autocomplete="off">
+      <button type="submit" class="btn primary">Set</button>
+    </form>
+    <span id="conn-pill" class="status-pill">Connecting...</span>
+  </div>
+</header>
+
+<main class="shell">
+  <div class="tablist" role="tablist" focusgroup="tablist nomemory" aria-label="Workshop Views" id="main-tablist">
+    <button type="button" role="tab" id="tab-quests" aria-selected="true" focusgroupstart data-panel="panel-quests">My Quests (01–06)</button>
+    <button type="button" role="tab" id="tab-classroom" aria-selected="false" data-panel="panel-classroom">Classroom Live (Projector)</button>
+    <button type="button" role="tab" id="tab-ai" aria-selected="false" data-panel="panel-ai">AI Agents &amp; Golden Rules</button>
+  </div>
+
+  <section role="tabpanel" id="panel-quests" aria-labelledby="tab-quests" tabindex="0">
+    <div class="panel-inner">
+      <div class="quest-layout">
+        <nav class="quest-nav" aria-label="Quest Navigation">
+          <div class="progress-box">
+            <div style="display:flex;justify-content:space-between;font-size:0.84rem;font-weight:700;">
+              <span>Verified Objectives</span>
+              <span id="user-score-label">0 / 11</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="user-progress-fill" style="inline-size:0%"></div></div>
+          </div>
+          <div id="quest-nav-items"></div>
+        </nav>
+        <div class="card" id="quest-detail-card"></div>
+      </div>
+    </div>
+  </section>
+
+  <section role="tabpanel" id="panel-classroom" aria-labelledby="tab-classroom" hidden="until-found">
+    <div class="panel-inner">
+      <div class="stats-grid" id="classroom-stats"></div>
+      <div class="card">
+        <h2 style="margin:0 0 0.75rem;font-size:1.1rem;">Live Berkelium GPU &amp; Dynamic MIG Node Pools</h2>
+        <div class="gpu-grid" id="gpu-grid"></div>
+      </div>
+      <div tabindex="0" role="region" aria-labelledby="matrix-caption" class="table-wrapper">
+        <table class="matrix">
+          <caption id="matrix-caption">Live Classroom Quest Progress (Shared Namespace: training-nov-26)</caption>
+          <thead>
+            <tr>
+              <th scope="col">Attendee</th>
+              <th scope="col">Q01 Pods</th>
+              <th scope="col">Q02 GPUs</th>
+              <th scope="col">Q03 Storage</th>
+              <th scope="col">Q04 Web</th>
+              <th scope="col">Q05 Jobs</th>
+              <th scope="col">Q06 Boss</th>
+              <th scope="col">Checks</th>
+            </tr>
+          </thead>
+          <tbody id="matrix-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section role="tabpanel" id="panel-ai" aria-labelledby="tab-ai" hidden="until-found">
+    <div class="panel-inner">
+      <div class="card">
+        <h2 style="margin-block-start:0;">Connect AI Coding Agents to Berkelium MCP + LBNL CBorg</h2>
+        <p style="color:var(--muted);font-size:0.92rem;">
+          After today's 1-hour session, you never need to memorize CRD schemas. Launch the
+          <strong><code>ai-agents</code></strong> template on <a href="https://coder.bk.lbl.gov" target="_blank" rel="noopener">coder.bk.lbl.gov</a>
+          (pre-wired to LBNL CBorg) or attach Berkelium's MCP server to Claude Code, OpenCode, or Cursor:
+        </p>
+        <div class="copyable">
+          <span class="copy">
+            <button type="button" class="copy-button" command="--copy" commandfor="mcp-cmd" aria-label="Copy Claude MCP command">Copy</button>
+            <span class="tip" role="status"></span>
+          </span>
+          <pre class="code-surface" id="mcp-cmd">claude mcp add --transport http berkelium https://berkelium.scs.lbl.gov/mcp</pre>
+        </div>
+        <h3 style="margin-block:1.25rem 0.5rem;font-size:1rem;">Berkelium's 4 Golden Rules</h3>
+        <ul style="margin:0;padding-inline-start:1.25rem;font-size:0.92rem;display:grid;gap:0.4rem;">
+          <li><strong>Mandatory Requests &amp; Limits:</strong> Always declare <code>cpu</code> and <code>memory</code> in both <code>requests</code> and <code>limits</code> on every container.</li>
+          <li><strong>Never <code>sleep infinity</code> in Batch/GPU Jobs:</strong> Batch <code>Job</code>s must execute unattended work and exit <code>0</code>; use <strong>Coder</strong> for interactive sessions.</li>
+          <li><strong>Right Storage Tier:</strong> <code>ceph-rbd</code> (RWO) for conda/uv/git/SQLite; <code>cephfs</code> (RWX) for shared datasets; <code>emptyDir</code> for NVMe scratch (<code>hostPath</code> is forbidden).</li>
+          <li><strong>Gateway API + IPv6/NAT64:</strong> Expose web services via <code>HTTPRoute</code> on <code>gateway/ingress</code>; outbound IPv4/IPv6 internet works transparently via DNS64/NAT64.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const QUESTS = __QUESTS_JSON__;
+const INITIAL_USER = __INITIAL_USER_JSON__;
+
+let activeUser = '';
+let activeQuestIdx = 0;
+let latestSnap = null;
+let snippetCounter = 0;
+
+function sanitizeUser(raw) {
+  return String(raw || '').trim().toLowerCase().replace(/@.*$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 16).replace(/-+$/g, '');
+}
+
+function tpl(str) {
+  if (activeUser) return str.replaceAll('{u}', activeUser);
+  return str.replaceAll('-{u}', '').replaceAll('{u}', 'demo');
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function codeBlockHtml(codeText, label) {
+  const id = 'code-snip-' + (++snippetCounter);
+  return `<div class="copyable">
+    <span class="copy">
+      <button type="button" class="copy-button" command="--copy" commandfor="${id}" aria-label="${esc('Copy ' + label)}">Copy</button>
+      <span class="tip" role="status"></span>
+    </span>
+    <pre class="code-surface" id="${id}">${esc(codeText)}</pre>
+  </div>`;
+}
+
+// Copy button implementation (modern-web-guidance: Invoker Commands + fallback + accessible live status)
+const copyTimers = new WeakMap();
+let lastStatusMsg = '';
+
+function legacyCopy(text) {
+  const field = Object.assign(document.createElement('textarea'), { value: text });
+  field.setAttribute('readonly', '');
+  field.style.cssText = 'position:fixed;inset-block-start:0;opacity:0';
+  document.body.append(field);
+  field.select();
+  try { return document.execCommand('copy'); } finally { field.remove(); }
+}
+
+function reportCopy(button, ok) {
+  const tip = button.nextElementSibling;
+  if (!tip) return;
+  clearTimeout(copyTimers.get(button));
+  button.removeAttribute('data-copied');
+  button.removeAttribute('data-failed');
+  let message = ok ? 'Copied' : 'Copy failed';
+  if (message === lastStatusMsg) message += '\u00A0';
+  lastStatusMsg = message;
+  tip.textContent = '';
+  void button.offsetWidth;
+  button.setAttribute(ok ? 'data-copied' : 'data-failed', '');
+  requestAnimationFrame(() => { tip.textContent = message; });
+  copyTimers.set(button, setTimeout(() => {
+    button.removeAttribute('data-copied');
+    button.removeAttribute('data-failed');
+    tip.textContent = '';
+  }, 2000));
+}
+
+async function performCopy(button, target) {
+  const text = target.matches('input, textarea') ? target.value : target.innerText.trim();
+  if (!text) return;
+  try {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      if (!legacyCopy(text)) throw new Error('Copy failed');
+    }
+    reportCopy(button, true);
+  } catch {
+    reportCopy(button, false);
+  }
+}
+
+if ('CommandEvent' in window) {
+  document.addEventListener('command', (event) => {
+    if (event.command && event.command.startsWith('--copy')) {
+      performCopy(event.source, event.target);
+    }
+  }, true);
+} else {
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('button[command^="--copy"]');
+    if (!button) return;
+    const target = document.getElementById(button.getAttribute('commandfor'));
+    if (target) performCopy(button, target);
+  });
+}
+
+// Accessible Tabs
+const tablist = document.getElementById('main-tablist');
+const tabs = Array.from(tablist.querySelectorAll('[role="tab"]'));
+
+function selectTab(selectedTab, moveFocus = false) {
+  for (const tab of tabs) {
+    const isSel = tab === selectedTab;
+    tab.setAttribute('aria-selected', String(isSel));
+    tab.toggleAttribute('focusgroupstart', isSel);
+    const panel = document.getElementById(tab.dataset.panel);
+    if (panel) {
+      if (isSel) {
+        panel.hidden = false;
+        panel.setAttribute('tabindex', '0');
+      } else {
+        panel.hidden = 'until-found';
+        panel.removeAttribute('tabindex');
+      }
+    }
+  }
+  if (moveFocus) selectedTab.focus();
+}
+
+for (const tab of tabs) {
+  tab.addEventListener('click', () => selectTab(tab, false));
+}
+
+if (!Object.hasOwn(HTMLElement.prototype, 'focusGroup')) {
+  tablist.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const idx = tabs.indexOf(document.activeElement);
+    if (idx < 0) return;
+    e.preventDefault();
+    const next = tabs[(idx + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    selectTab(next, true);
+  });
+}
+
+document.addEventListener('beforematch', (e) => {
+  const panel = e.target.closest('[role="tabpanel"]');
+  if (!panel) return;
+  const tab = tabs.find(t => t.dataset.panel === panel.id);
+  if (tab) selectTab(tab, false);
+});
+
+// Render UI
+function getUserState() {
+  if (!latestSnap || !activeUser) return null;
+  return (latestSnap.users && latestSnap.users[activeUser]) || null;
+}
+
+function renderQuestView() {
+  const uState = getUserState();
+  const checksMap = (uState && uState.checks) || {};
+  const questsMap = (uState && uState.quests) || {};
+  const score = uState ? uState.score : 0;
+  const total = (latestSnap && latestSnap.total_checks) || 11;
+
+  document.getElementById('user-score-label').textContent = `${score} / ${total}`;
+  document.getElementById('user-progress-fill').style.inlineSize = `${Math.round((score / total) * 100)}%`;
+
+  const navEl = document.getElementById('quest-nav-items');
+  navEl.innerHTML = QUESTS.map((q, idx) => {
+    const done = Boolean(questsMap[q.id]);
+    const doneCnt = q.checks.filter(c => checksMap[c.id]).length;
+    return `<button type="button" class="quest-item-btn" data-qidx="${idx}" aria-current="${idx === activeQuestIdx}">
+      <span><strong>${esc(q.num)}.</strong> ${esc(q.title)}</span>
+      <span class="q-badge" data-done="${done}">${done ? '✓' : doneCnt + '/' + q.checks.length}</span>
+    </button>`;
+  }).join('');
+
+  navEl.querySelectorAll('.quest-item-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      activeQuestIdx = Number(btn.dataset.qidx);
+      renderQuestView();
+    });
+  });
+
+  const q = QUESTS[activeQuestIdx];
+  const openDetails = new Set(
+    Array.from(document.querySelectorAll('#quest-detail-card details[open]')).map(d => d.dataset.did)
+  );
+  snippetCounter = 0;
+
+  const setupReminder = !activeUser
+    ? `<div class="why-callout" style="border-inline-start-color:var(--warn);">
+        <strong>Set your attendee suffix above first!</strong> Run <code>./setup.sh &lt;your-name&gt;</code> in your terminal and enter the same name in the top-right box so live auto-verification tracks your pods &amp; jobs in <code>training-nov-26</code>.
+       </div>`
+    : '';
+
+  const checksHtml = q.checks.map((c) => {
+    const ok = Boolean(checksMap[c.id]);
+    return `<div class="check-row" data-ok="${ok}">
+      <span class="check-icon">${ok ? '[✓]' : '[ ]'}</span>
+      <div>
+        <div class="check-title">${esc(tpl(c.title))}</div>
+        <div class="check-detail">${esc(tpl(c.detail))}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const starterText = q.starter_cmds.map(tpl).join('\n');
+  const solutionText = q.solution_cmds.map(tpl).join('\n\n');
+
+  document.getElementById('quest-detail-card').innerHTML = `
+    ${setupReminder}
+    <div class="quest-header">
+      <h2>Quest ${esc(q.num)} — ${esc(q.title)}</h2>
+      <span class="q-badge">${esc(q.duration)} · ${esc(q.module)}</span>
+    </div>
+    <div class="why-callout"><strong>Why this matters on Berkelium:</strong> ${esc(q.why)}</div>
+    <h3 style="margin:0 0 0.5rem;font-size:0.95rem;">Live Auto-Verified Cluster Objectives</h3>
+    <div class="checks-list">${checksHtml}</div>
+    <h3 style="margin:0 0 0.35rem;font-size:0.95rem;">Run in Your Terminal</h3>
+    ${codeBlockHtml(starterText, 'Quest ' + q.num + ' starter commands')}
+    <div class="disclosures">
+      <details class="disclosure" data-did="hint-${q.id}" ${openDetails.has('hint-' + q.id) ? 'open' : ''}>
+        <summary>Need a Hint?</summary>
+        <div class="disclosure-body"><pre class="code-surface" style="padding-inline-end:0.9rem;">${esc(tpl(q.hint))}</pre></div>
+      </details>
+      <details class="disclosure" data-did="sol-${q.id}" ${openDetails.has('sol-' + q.id) ? 'open' : ''}>
+        <summary>Short on Time? Show Exact Solution Commands</summary>
+        <div class="disclosure-body">${codeBlockHtml(solutionText, 'Quest ' + q.num + ' solution commands')}</div>
+      </details>
+    </div>
+  `;
+}
+
+function renderClassroomView() {
+  if (!latestSnap) return;
+  const tel = latestSnap.telemetry || {};
+  document.getElementById('classroom-stats').innerHTML = [
+    ['Active Attendees', tel.attendees ?? 0],
+    ['Total Quests Solved', tel.quests_solved_total ?? 0],
+    ['Active Namespace Pods', tel.running_pods ?? 0],
+    ['Active DRA GPU / MIG Claims', tel.active_dra_claims ?? 0],
+  ].map(([lbl, val]) => `
+    <div class="stat-card">
+      <div class="stat-value">${esc(val)}</div>
+      <div class="stat-label">${esc(lbl)}</div>
+    </div>
+  `).join('');
+
+  const pools = tel.gpu_pools || [];
+  document.getElementById('gpu-grid').innerHTML = pools.length
+    ? pools.map(p => `
+        <div class="gpu-card" data-busy="${p.workshop_active > 0 || p.mig_slices > 0}">
+          <div class="gpu-title">${esc(p.model)}</div>
+          <div class="gpu-meta">${esc(p.schedulable_nodes)}/${esc(p.nodes)} nodes ready · ${esc(p.total_gpus)} physical GPUs</div>
+          <div class="gpu-meta" style="color:var(--ok);font-weight:600;">
+            Workshop active: ${esc(p.workshop_active)} pod(s)${p.mig_slices ? ' · ' + esc(p.mig_slices) + ' MIG slice(s)' : ''}
+          </div>
+        </div>
+      `).join('')
+    : '<div style="color:var(--muted);font-size:0.9rem;">Waiting for node telemetry...</div>';
+
+  const usersList = Object.values(latestSnap.users || {}).sort((a, b) => (b.score - a.score) || a.user.localeCompare(b.user));
+  const tbody = document.getElementById('matrix-tbody');
+  if (!usersList.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="color:var(--muted);padding:1.25rem;">No attendee resources detected in training-nov-26 yet — run <code>./setup.sh</code> and start Quest 01!</td></tr>';
+    return;
+  }
+  tbody.innerHTML = usersList.map(st => {
+    const cells = QUESTS.map(q => {
+      const doneCnt = q.checks.filter(c => st.checks[c.id]).length;
+      if (doneCnt === q.checks.length) return `<td style="color:var(--ok);font-weight:700;">✓ Done</td>`;
+      if (doneCnt > 0) return `<td style="color:var(--warn);font-weight:600;">${doneCnt}/${q.checks.length}</td>`;
+      return `<td style="color:var(--muted);">—</td>`;
+    }).join('');
+    return `<tr>
+      <th scope="row">-${esc(st.user)}</th>
+      ${cells}
+      <td><strong>${esc(st.score)}/${esc(latestSnap.total_checks)}</strong></td>
+    </tr>`;
+  }).join('');
+}
+
+async function pollState() {
+  try {
+    const res = await fetch('/api/state', { cache: 'no-store' });
+    latestSnap = await res.json();
+    const pill = document.getElementById('conn-pill');
+    if (latestSnap.connected) {
+      pill.dataset.live = 'true';
+      pill.textContent = latestSnap.mode === 'demo'
+        ? 'Demo Mode (Simulated)'
+        : `Live · ${latestSnap.namespace}`;
+    } else {
+      pill.dataset.live = 'false';
+      pill.textContent = 'Cluster Unreachable';
+    }
+    renderQuestView();
+    renderClassroomView();
+  } catch {
+    const pill = document.getElementById('conn-pill');
+    pill.dataset.live = 'false';
+    pill.textContent = 'Offline';
+  }
+}
+
+// Init state from URL / localStorage / server default
+const params = new URLSearchParams(location.search);
+if (params.get('view') === 'classroom') {
+  selectTab(document.getElementById('tab-classroom'), false);
+}
+activeUser = sanitizeUser(params.get('user') || localStorage.getItem('berkelium_training_user') || INITIAL_USER);
+const userInput = document.getElementById('user-input');
+userInput.value = activeUser;
+
+document.getElementById('user-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  activeUser = sanitizeUser(userInput.value);
+  userInput.value = activeUser;
+  localStorage.setItem('berkelium_training_user', activeUser);
+  const url = new URL(location.href);
+  if (activeUser) url.searchParams.set('user', activeUser);
+  else url.searchParams.delete('user');
+  history.replaceState(null, '', url);
+  renderQuestView();
+});
+
+renderQuestView();
+pollState();
+setInterval(pollState, 2500);
+</script>
+</body>
+</html>
+"""
+
+
+class DualStackHTTPServer(http.server.ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+    def server_bind(self) -> None:
+        try:
+            self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        except Exception:
+            pass
+        super().server_bind()
+
+
+def make_http_handler(k8s: K8sClient):
+    rendered_html = (
+        WEB_HTML.replace("__QUESTS_JSON__", json.dumps(QUESTS))
+        .replace("__INITIAL_USER_JSON__", json.dumps(read_local_user()))
+        .encode("utf-8")
+    )
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt: str, *args: Any) -> None:
+            return
+
+        def do_GET(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path == "/healthz":
+                self._send_bytes(200, "text/plain; charset=utf-8", b"ok")
+                return
+            if parsed.path == "/api/state":
+                snap = k8s.get_snapshot()
+                body = json.dumps(snap).encode("utf-8")
+                self._send_bytes(200, "application/json; charset=utf-8", body)
+                return
+            if parsed.path in ("/", "/index.html"):
+                self._send_bytes(200, "text/html; charset=utf-8", rendered_html)
+                return
+            self._send_bytes(404, "text/plain; charset=utf-8", b"Not Found")
+
+        def _send_bytes(self, code: int, content_type: str, data: bytes) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+    return Handler
+
+
+def start_web_server(k8s: K8sClient, host: str, port: int, background: bool = False) -> http.server.ThreadingHTTPServer:
+    handler = make_http_handler(k8s)
+    if ":" in host:
+        try:
+            srv: http.server.ThreadingHTTPServer = DualStackHTTPServer((host, port), handler)
+        except OSError:
+            if host == "::":
+                srv = http.server.ThreadingHTTPServer(("0.0.0.0", port), handler)
+            else:
+                raise
+    else:
+        srv = http.server.ThreadingHTTPServer((host, port), handler)
+
+    if background:
+        t = threading.Thread(target=srv.serve_forever, daemon=True)
+        t.start()
+    return srv
+
+
+# ---------------------------------------------------------------------------
+# Mouse-Copyable Interactive Terminal Quest TUI (./lab)
+# ---------------------------------------------------------------------------
+
+def run_tui(k8s: K8sClient, user: str) -> int:
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return print_check_summary(k8s, user)
+
+    if not user and not k8s.demo_mode:
+        setup_script = os.path.join(REPO_ROOT, "setup.sh")
+        if os.path.isfile(setup_script):
+            subprocess.run([setup_script], check=False)
+            user = read_local_user()
+
+    quest_idx = 0
+    show_hint = False
+    show_sol = False
+    board_mode = False
+    web_url = ""
+    web_srv: http.server.ThreadingHTTPServer | None = None
+
+    fd = sys.stdin.fileno()
+    old_term = termios.tcgetattr(fd)
+
+    def render_screen(snap: dict[str, Any]) -> None:
+        u_state = (snap.get("users") or {}).get(user) if user else None
+        checks = (u_state or {}).get("checks") or {}
+        quests_ok = (u_state or {}).get("quests") or {}
+        score = (u_state or {}).get("score", 0)
+        total = snap.get("total_checks", 11)
+
+        out: list[str] = ["\033[2J\033[H"]
+        conn_tag = (
+            "\033[33mDEMO\033[0m"
+            if snap.get("mode") == "demo"
+            else ("\033[32mLIVE\033[0m" if snap.get("connected") else "\033[31mOFFLINE\033[0m")
+        )
+        u_label = f"-{user}" if user else "(run ./setup.sh)"
+        out.append(
+            f"\033[1;36m=== BERKELIUM QUEST LAB ===\033[0m  "
+            f"[{conn_tag} ns:{snap.get('namespace')}]  "
+            f"Attendee: \033[1m{u_label}\033[0m  "
+            f"Progress: \033[1;32m{score}/{total}\033[0m"
+        )
+        if web_url:
+            out.append(f"\033[36mBrowser UI running at:\033[0m \033[1m{web_url}\033[0m (Coder auto-proxies this port!)")
+        if not snap.get("connected") and snap.get("error"):
+            out.append(f"\033[33mCluster warning:\033[0m {snap['error'][:100]}")
+
+        tabs_bar = []
+        for i, q in enumerate(QUESTS):
+            done = quests_ok.get(q["id"], False)
+            mark = "\033[32m✓\033[0m" if done else f"{sum(1 for c in q['checks'] if checks.get(c['id']))}/{len(q['checks'])}"
+            if not board_mode and i == quest_idx:
+                tabs_bar.append(f"\033[7;1m [{q['num']} {mark}] \033[0m")
+            else:
+                tabs_bar.append(f" {q['num']}({mark}) ")
+        b_lbl = "\033[7;1m [B: Classroom] \033[0m" if board_mode else " [B: Classroom] "
+        out.append("".join(tabs_bar) + b_lbl)
+        out.append("\033[2m" + ("─" * 76) + "\033[0m")
+
+        if board_mode:
+            tel = snap.get("telemetry") or {}
+            out.append(
+                f"\033[1mClassroom Live:\033[0m {tel.get('attendees', 0)} attendee(s)  |  "
+                f"{tel.get('quests_solved_total', 0)} quest(s) solved  |  "
+                f"{tel.get('running_pods', 0)} running pod(s)  |  "
+                f"{tel.get('active_dra_claims', 0)} active GPU/MIG claim(s)"
+            )
+            out.append("")
+            out.append("\033[1mGPU & Dynamic MIG Node Pools:\033[0m")
+            for p in tel.get("gpu_pools") or []:
+                mig_s = f", {p['mig_slices']} MIG slice(s)" if p.get("mig_slices") else ""
+                out.append(
+                    f"  • {p['model']:<22} {p['schedulable_nodes']}/{p['nodes']} nodes ({p['total_gpus']} GPUs) "
+                    f"-> workshop active: {p['workshop_active']} pod(s){mig_s}"
+                )
+            out.append("")
+            out.append("\033[1mAttendee           Q01   Q02   Q03   Q04   Q05   Q06   Score\033[0m")
+            users_sorted = sorted(
+                (snap.get("users") or {}).values(),
+                key=lambda x: (-x["score"], x["user"]),
+            )
+            for st in users_sorted[:18]:
+                cols = []
+                for q in QUESTS:
+                    dc = sum(1 for c in q["checks"] if st["checks"].get(c["id"]))
+                    if dc == len(q["checks"]):
+                        cols.append("\033[32m ✓   \033[0m")
+                    elif dc > 0:
+                        cols.append(f"\033[33m{dc}/{len(q['checks'])}  \033[0m")
+                    else:
+                        cols.append("\033[2m ·   \033[0m")
+                out.append(f"-{st['user']:<17} " + " ".join(cols) + f"  {st['score']}/{total}")
+        else:
+            q = QUESTS[quest_idx]
+            out.append(f"\033[1;33mQuest {q['num']} — {q['title']}\033[0m \033[2m({q['duration']} · {q['module']})\033[0m")
+            out.append(f"\033[2m{q['why']}\033[0m")
+            out.append("")
+            out.append("\033[1mLive Cluster Objectives (auto-updates every 3s):\033[0m")
+            for c in q["checks"]:
+                ok = checks.get(c["id"], False)
+                box = "\033[1;32m[✓]\033[0m" if ok else "\033[33m[ ]\033[0m"
+                out.append(f"  {box} \033[1m{render_tpl(c['title'], user)}\033[0m")
+                out.append(f"      \033[2m{render_tpl(c['detail'], user)}\033[0m")
+
+            out.append("")
+            out.append("\033[1mRun in another terminal pane (highlight with mouse to copy):\033[0m")
+            for cmd in q["starter_cmds"]:
+                out.append(f"  \033[32m$\033[0m {render_tpl(cmd, user)}")
+
+            if show_hint:
+                out.append("")
+                out.append("\033[1;36mHint:\033[0m")
+                for line in render_tpl(q["hint"], user).splitlines():
+                    out.append(f"  {line}")
+
+            if show_sol:
+                out.append("")
+                out.append("\033[1;35mExact Solution Commands:\033[0m")
+                for cmd in q["solution_cmds"]:
+                    for idx_l, line in enumerate(render_tpl(cmd, user).splitlines()):
+                        prefix = "  \033[32m$\033[0m " if idx_l == 0 else "    "
+                        out.append(f"{prefix}{line}")
+
+        out.append("")
+        out.append("\033[2m" + ("─" * 76) + "\033[0m")
+        out.append(
+            "\033[1mKeys:\033[0m [1-6/n/p] Quest  [h] Hint  [s] Solution  "
+            "[b] Classroom  [w] Start Web UI  [r] Refresh  [q] Quit"
+        )
+        sys.stdout.write("\n".join(out) + "\n")
+        sys.stdout.flush()
+
+    try:
+        tty.setcbreak(fd)
+        last_refresh = 0.0
+        snap = k8s.get_snapshot(force=True)
+        render_screen(snap)
+        last_refresh = time.monotonic()
+
+        while True:
+            rlist, _, _ = select.select([sys.stdin], [], [], 0.5)
+            if rlist:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    # Arrow key escape sequence
+                    if select.select([sys.stdin], [], [], 0.03)[0]:
+                        seq = sys.stdin.read(2)
+                        if seq == "[C":
+                            board_mode = False
+                            quest_idx = (quest_idx + 1) % len(QUESTS)
+                        elif seq == "[D":
+                            board_mode = False
+                            quest_idx = (quest_idx - 1) % len(QUESTS)
+                elif ch in ("q", "Q", "\x03"):
+                    break
+                elif ch in "123456":
+                    board_mode = False
+                    quest_idx = int(ch) - 1
+                    show_hint = False
+                    show_sol = False
+                elif ch in ("n", "N"):
+                    board_mode = False
+                    quest_idx = (quest_idx + 1) % len(QUESTS)
+                    show_hint = False
+                    show_sol = False
+                elif ch in ("p", "P"):
+                    board_mode = False
+                    quest_idx = (quest_idx - 1) % len(QUESTS)
+                    show_hint = False
+                    show_sol = False
+                elif ch in ("h", "H"):
+                    board_mode = False
+                    show_hint = not show_hint
+                elif ch in ("s", "S"):
+                    board_mode = False
+                    show_sol = not show_sol
+                elif ch in ("b", "B"):
+                    board_mode = not board_mode
+                elif ch in ("w", "W") and web_srv is None:
+                    for try_port in (8080, 8081, 8888):
+                        try:
+                            web_srv = start_web_server(k8s, "::", try_port, background=True)
+                            web_url = f"http://localhost:{try_port}"
+                            break
+                        except OSError:
+                            continue
+                elif ch in ("r", "R"):
+                    snap = k8s.get_snapshot(force=True)
+                    last_refresh = time.monotonic()
+                render_screen(snap)
+
+            if (time.monotonic() - last_refresh) >= 3.0:
+                snap = k8s.get_snapshot()
+                last_refresh = time.monotonic()
+                render_screen(snap)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_term)
+        if web_srv is not None:
+            web_srv.shutdown()
+        print("\nExited Quest Lab. Your progress stays saved in namespace ConfigMap!")
+    return 0
+
+
+def print_check_summary(k8s: K8sClient, user: str) -> int:
+    snap = k8s.get_snapshot(force=True)
+    u_state = (snap.get("users") or {}).get(user) if user else None
+    checks = (u_state or {}).get("checks") or {}
+    score = (u_state or {}).get("score", 0)
+    total = snap.get("total_checks", 11)
+
+    print(f"=== Berkelium Quest Verification (attendee: -{user or 'unset'} | {score}/{total} verified) ===")
+    if not snap.get("connected"):
+        print(f"Warning: Cluster unreachable ({snap.get('error')})")
+    for q in QUESTS:
+        print(f"\nQuest {q['num']} — {q['title']}")
+        for c in q["checks"]:
+            mark = "[✓]" if checks.get(c["id"]) else "[ ]"
+            print(f"  {mark} {render_tpl(c['title'], user)}")
+    return 0
+
+
+def print_board_summary(k8s: K8sClient) -> int:
+    snap = k8s.get_snapshot(force=True)
+    tel = snap.get("telemetry") or {}
+    total = snap.get("total_checks", 11)
+    print(
+        f"=== Classroom Leaderboard (ns: {snap.get('namespace')} | "
+        f"attendees: {tel.get('attendees', 0)} | active pods: {tel.get('running_pods', 0)}) ==="
+    )
+    print(f"{'Attendee':<18} {'Q01':<5} {'Q02':<5} {'Q03':<5} {'Q04':<5} {'Q05':<5} {'Q06':<5} Score")
+    for st in sorted((snap.get("users") or {}).values(), key=lambda x: (-x["score"], x["user"])):
+        cols = []
+        for q in QUESTS:
+            dc = sum(1 for c in q["checks"] if st["checks"].get(c["id"]))
+            cols.append(" ✓   " if dc == len(q["checks"]) else (f"{dc}/{len(q['checks'])}  " if dc else " ·   "))
+        print(f"-{st['user']:<17} " + " ".join(cols) + f" {st['score']}/{total}")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Berkelium Interactive Quest Engine & Live Classroom Hub")
+    parser.add_argument("--web", action="store_true", help="Run Browser Quest UI & Classroom Live HTTP server")
+    parser.add_argument("--host", default="::", help="Bind address for --web (default: '::' dual-stack IPv6+IPv4)")
+    parser.add_argument("--port", type=int, default=8080, help="Port for --web (default: 8080)")
+    parser.add_argument("--user", default="", help="Override attendee suffix (default: from .training-user)")
+    parser.add_argument("--check", action="store_true", help="Print one-shot Quest verification status and exit")
+    parser.add_argument("--board", action="store_true", help="Print one-shot Classroom Leaderboard and exit")
+    parser.add_argument("--demo", action="store_true", help="Use simulated cluster telemetry (offline preview)")
+    args = parser.parse_args()
+
+    user = sanitize_user(args.user) or read_local_user()
+    k8s = K8sClient(demo_mode=args.demo)
+
+    if args.check:
+        return print_check_summary(k8s, user)
+    if args.board:
+        return print_board_summary(k8s)
+    if args.web:
+        srv = start_web_server(k8s, args.host, args.port, background=False)
+        display_host = "localhost" if args.host in ("0.0.0.0", "::", "127.0.0.1", "::1") else args.host
+        print("======================================================================")
+        print("Berkelium Quest Companion & Live Classroom Hub")
+        print(f"  Attendee Quest View : http://{display_host}:{args.port}/" + (f"?user={user}" if user else ""))
+        print(f"  Classroom Projector : http://{display_host}:{args.port}/?view=classroom")
+        if os.environ.get("CODER") or os.environ.get("CODER_AGENT_URL"):
+            print("  Coder Workspace     : Click 'Open in Browser (8080)' popup or VS Code 'Ports' tab!")
+        print("  Press Ctrl+C to stop.")
+        print("======================================================================", flush=True)
+        try:
+            srv.serve_forever()
+        except KeyboardInterrupt:
+            print("\nStopped web server.")
+        return 0
+
+    return run_tui(k8s, user)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

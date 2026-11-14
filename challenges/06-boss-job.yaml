@@ -1,0 +1,54 @@
+# QUEST 06 BOSS CHALLENGE — Fix All 4 Berkelium Golden Rule Violations!
+#
+# Audit this migrated manifest first:
+#   python3 scripts/06-debugging/03-audit-manifest.py challenges/06-boss-job.yaml
+#
+# Fix all 4 issues, then run:  kubectl apply -f challenges/06-boss-job.yaml
+#   1. StorageClass: 'gp2' does not exist -> use 'cephfs' (ReadWriteMany) or 'ceph-rbd' (ReadWriteOnce)
+#   2. Resources: Add 'memory: 256Mi' to requests AND add 'limits: { cpu: 500m, memory: 512Mi }'
+#   3. Batch lifecycle: Replace 'sleep infinity' with active computation that exits 0!
+#   4. Security: Replace forbidden 'hostPath' on 'scratch' with 'emptyDir: { sizeLimit: 2Gi }'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: boss-pvc
+  labels:
+    berkelium.lbl.gov/quest: q6
+spec:
+  storageClassName: gp2
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: boss-job
+  labels:
+    berkelium.lbl.gov/quest: q6
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: analysis
+        image: python:3.12-slim
+        command: ["sh", "-c", "sleep infinity"]
+        resources:
+          requests:
+            cpu: 200m
+        volumeMounts:
+        - name: dataset
+          mountPath: /shared-data
+        - name: scratch
+          mountPath: /scratch
+      volumes:
+      - name: dataset
+        persistentVolumeClaim:
+          claimName: boss-pvc
+      - name: scratch
+        hostPath:
+          path: /var/tmp

@@ -1,0 +1,63 @@
+# QUEST 03 CHALLENGE — Fix 2 Storage Migration Bugs!
+#
+# Try a server dry-run first to see Gatekeeper's error:
+#   kubectl apply --dry-run=server -f challenges/03-broken-storage.yaml
+#
+# Bugs to fix:
+#   1. Wrong StorageClass: Change 'rook-cephfs' to 'ceph-rbd' (for ReadWriteOnce code/envs)
+#      or 'cephfs' (if changing accessModes to ReadWriteMany for shared datasets).
+#   2. Forbidden hostPath: Replace 'hostPath: { path: /tmp }' on 'scratch-vol' with
+#      ephemeral NVMe scratch:
+#        emptyDir:
+#          sizeLimit: 2Gi
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: quest3-pvc
+  labels:
+    berkelium.lbl.gov/quest: q3
+spec:
+  storageClassName: rook-cephfs
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: quest3-pod
+  labels:
+    berkelium.lbl.gov/quest: q3
+spec:
+  restartPolicy: Never
+  containers:
+  - name: io-worker
+    image: ubuntu:24.04
+    command:
+    - sh
+    - -c
+    - |
+      echo "Persistent Ceph volume + NVMe scratch ready on $(hostname)" > /workspace/ok.txt
+      df -h /workspace /scratch
+      sleep 1800
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+    volumeMounts:
+    - name: persistent-vol
+      mountPath: /workspace
+    - name: scratch-vol
+      mountPath: /scratch
+  volumes:
+  - name: persistent-vol
+    persistentVolumeClaim:
+      claimName: quest3-pvc
+  - name: scratch-vol
+    hostPath:
+      path: /tmp

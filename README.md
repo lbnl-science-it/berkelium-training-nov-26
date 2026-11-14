@@ -47,8 +47,21 @@ export KUBECONFIG="$(pwd)/kubeconfig.yaml"
 ./setup.sh
 ```
 
-### How the Interactive Exercise Scripts Work
-1. **Zero Name Collisions (`./setup.sh`)**: Running `./setup.sh` (auto-detects your Coder username or prompts once) stamps your unique suffix (e.g., `-alice`) directly into all local `.yaml` and `.sh` files (`test-pod-alice`, `test-svc-alice`, `training-demo-alice.bk.lbl.gov`). That means plain `kubectl apply -f ...` works out of the box without colliding with classmates! *(Run `./setup.sh --reset` anytime to restore base names.)*
+### Interactive Quest Lab, Browser Companion & Classroom Hub (Recommended!)
+
+After running `./setup.sh`, you can go through the entire workshop as **6 live-verified hands-on quests** (including real "Break & Fix" manifests in [`challenges/`](challenges/) that check your actual pods, PVCs, DRA GPU/MIG claims, `HTTPRoute`s, and batch jobs in `training-nov-26` every 3 seconds):
+
+| How You're Connected | Command to Run | What Opens |
+| :--- | :--- | :--- |
+| **Terminal TUI (Coder or Laptop)** | `./lab` | Mouse-copyable terminal quest tracker (`1`–`6` quests, `h` hint, `s` exact solution, `b` live classroom board, `w` launch web UI). Run `kubectl` in a second split terminal! |
+| **Coder Browser UI (Anywhere — No VPN Needed!)** | `./lab --web` | Starts the Quest & Classroom web app on port `8080`. Coder (`coder.bk.lbl.gov`) **automatically proxies port `8080` over HTTPS** — click the *"Open in Browser"* toast or VS Code **Ports** tab! |
+| **Local Laptop Browser (`kubectl port-forward`)** | `kubectl port-forward svc/training-hub 8080:80` | Connects directly to the shared in-cluster hub at **`http://localhost:8080`** (select your `-<name>` suffix in the top bar). |
+| **Classroom Projector / LBL Wi-Fi / LBL VPN** | Open **`https://training-hub.bk.lbl.gov/?view=classroom`** | Live classroom leaderboard + real-time Berkelium GPU/Dynamic MIG pool telemetry *(instructor deploys once via `./hub/deploy-hub.sh`)*. |
+
+> **CLI quick checks:** Run `./lab --check` anytime for a one-shot checklist summary, or `./lab --board` to print the classroom leaderboard in plain text. Your verified quest checkmarks persist in `ConfigMap/lab-state-<your-name>` even after you delete pods/jobs to free GPUs!
+
+### Guided Step-by-Step Scripts (Alternative / Reference Mode)
+1. **Zero Name Collisions (`./setup.sh`)**: Running `./setup.sh` (auto-detects your Coder username or prompts once) stamps your unique suffix (e.g., `-alice`) directly into all local `.yaml` and `.sh` files across [`scripts/`](scripts/) and [`challenges/`](challenges/) (`test-pod-alice`, `quest1-pod-alice`, `training-demo-alice.bk.lbl.gov`). Plain `kubectl apply -f ...` works out of the box without colliding with classmates! *(Run `./setup.sh --reset` anytime to restore base names.)*
 2. **Interactive Editable Prompt**: Each `./scripts/.../*.sh` script walks through the exercise step-by-step and **pre-fills the exact `kubectl` command at an editable `$ ` prompt**:
    - Press **`Enter`** to execute the command, or **edit it inline** first (e.g., change flags, try `kubectl exec -it ... -- /bin/bash`).
    - Type **`s`** to skip a step or **`q`** (`Ctrl+C`) to quit.

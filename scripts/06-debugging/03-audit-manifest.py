@@ -6,7 +6,10 @@ import sys
 
 path = sys.argv[1] if len(sys.argv) > 1 else "03-bad-manifest.yaml"
 with open(path, "r", encoding="utf-8") as f:
-    text = f.read()
+    raw_lines = f.readlines()
+
+# Strip YAML comment lines / inline comments so header instructions don't trigger false positives/negatives
+text = "\n".join(re.sub(r"(^|\s)#.*$", "", line) for line in raw_lines)
 
 violations = []
 if re.search(r"storageClassName:\s*(?!cephfs\b|ceph-rbd\b)\S+", text):
