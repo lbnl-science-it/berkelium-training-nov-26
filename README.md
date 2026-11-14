@@ -22,54 +22,37 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 ---
 
-## Quick Setup — Configure `kubectl` & Personalize Your Name (2 Minutes)
+## Quick Setup — Open Coder & Run `./setup.sh` (2 Minutes)
 
-> **Security note:** Because this repository is public on GitHub, **no cluster credentials (`kubeconfig.yaml`) are stored in Git**. Instead, `./setup.sh` fetches a temporary workshop `kubeconfig` using the **Workshop Join Code** displayed by the instructor on the opening slide / Zoom chat, and installs it to `~/.kube/config` automatically so plain `kubectl` works in every terminal tab! *(Outside of workshops, generate your own project namespace anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**.)*
+For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk.lbl.gov`)**—it works from any browser over standard HTTPS with **zero VPN, zero IPv6 setup, and zero local installs**, while keeping cluster credentials out of public GitHub:
 
-### Option A (Recommended — Zero Local Setup via Coder Browser Terminal)
-Works from **anywhere** over standard HTTPS (no VPN, no local `kubectl`, and no IPv6 setup required):
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
-2. Click **Templates** → choose **`Cloud-Native & Systems (Go + Rust)`** (`cloud-native` — starts in seconds with `kubectl` & `k9s` pre-installed) or **`PyTorch / CUDA Deep Learning`** (`cuda`).
-3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace**.
+2. Click **Templates** → choose **`Cloud-Native & Systems (Go + Rust)`** (`cloud-native` — starts in ~10 seconds with `kubectl`, `k9s`, & `python3` pre-installed) or **`PyTorch / CUDA Deep Learning`** (`cuda`).
+3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace** *(or clone inside the terminal below)*.
 4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh`:
    ```bash
+   git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git ~/berkelium-training-nov-26 2>/dev/null || true
    cd ~/berkelium-training-nov-26
    ./setup.sh
    ```
-   - **Prompt 1 (`Workshop Join Code`)**: Enter the short code from the slide / Zoom chat (e.g., `bk-7k9m`). `./setup.sh` downloads `kubeconfig.yaml` from the internal workshop hub and installs `~/.kube/config` (`chmod 600`) automatically!
+   - **Prompt 1 (`Workshop Join Code`)**: Enter the short code shown on the instructor's slide / Zoom chat (e.g., `bk-7k9m`). `./setup.sh` fetches a 24-hour workshop `kubeconfig` from the internal training hub and installs `~/.kube/config` (`chmod 600`) automatically so plain `kubectl` works in every terminal tab!
    - **Prompt 2 (`Your name/initials`)**: Press **Enter** to accept your auto-detected Coder username (stamps `-<your-name>` onto all YAML/scripts so you never collide with classmates).
 5. Verify `kubectl` works:
    ```bash
    kubectl get pods
    ```
 
-### Option B (Local Laptop / Workstation Terminal)
-Requires `kubectl` installed and **LBNL Wi-Fi or LBNL VPN** connectivity:
-1. Clone this repository and run `./setup.sh`:
-   ```bash
-   git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git
-   cd berkelium-training-nov-26
-   ./setup.sh
-   ```
-2. Enter the **Workshop Join Code** from the slide / Zoom chat *(or paste the path to a downloaded `~/Downloads/kubeconfig.yaml` file or raw `eyJ...` token if shared via LBNL Google Drive / Zoom)*.
-   - If you already have an existing `~/.kube/config` for other clusters, `./setup.sh` backs it up safely to `~/.kube/config.pre-berkelium.bak` first (or lets you keep it untouched and use `export KUBECONFIG="$(pwd)/kubeconfig.yaml"`).
-3. Verify `kubectl` works:
-   ```bash
-   kubectl get pods
-   ```
+> **Instructor Pre-Workshop Setup (1 Command):** Before class, run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to display on Slide 6.
 
-> **Instructor Pre-Workshop Setup (1 Command):** Before class, connect to LBNL Wi-Fi/VPN and run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to put on your slide + a backup file at `/tmp/berkelium-training-kubeconfig.yaml`.
+### Launch the Interactive Quest Lab (`./lab`)
 
-### Interactive Quest Lab, Browser Companion & Classroom Hub (Recommended!)
+After running `./setup.sh`, complete the workshop as **6 live-verified hands-on quests** (including real "Break & Fix" manifests in [`challenges/`](challenges/) that check your actual pods, PVCs, DRA GPU/MIG claims, `HTTPRoute`s, and batch jobs in `training-nov-26` every 3 seconds):
 
-After running `./setup.sh`, you can go through the entire workshop as **6 live-verified hands-on quests** (including real "Break & Fix" manifests in [`challenges/`](challenges/) that check your actual pods, PVCs, DRA GPU/MIG claims, `HTTPRoute`s, and batch jobs in `training-nov-26` every 3 seconds):
-
-| How You're Connected | Command to Run | What Opens |
+| Mode inside Coder | Command to Run | What Opens |
 | :--- | :--- | :--- |
-| **Terminal TUI (Coder or Laptop)** | `./lab` | Mouse-copyable terminal quest tracker (`1`–`6` quests, `h` hint, `s` exact solution, `b` live classroom board, `w` launch web UI). Run `kubectl` in a second split terminal! |
-| **Coder Browser UI (Anywhere — No VPN Needed!)** | `./lab --web` | Starts the Quest & Classroom web app on port `8080`. Coder (`coder.bk.lbl.gov`) **automatically proxies port `8080` over HTTPS** — click the *"Open in Browser"* toast or VS Code **Ports** tab! |
-| **Local Laptop Browser (`kubectl port-forward`)** | `kubectl port-forward svc/training-hub 8080:80` | Connects directly to the shared in-cluster hub at **`http://localhost:8080`** (select your `-<name>` suffix in the top bar). |
-| **Classroom Projector / LBL Wi-Fi / LBL VPN** | Open **`https://training-hub.bk.lbl.gov/?view=classroom`** | Live classroom leaderboard + real-time Berkelium GPU/Dynamic MIG pool telemetry *(instructor deploys once via `./hub/deploy-hub.sh`)*. |
+| **Coder Browser UI (Recommended!)** | `./lab --web` | Starts the Quest & Classroom web app on port `8080`. Coder (`coder.bk.lbl.gov`) **automatically proxies port `8080` over HTTPS** — click the *"Open in Browser"* toast or VS Code **Ports** tab, then run `kubectl` in a second terminal tab! |
+| **Terminal TUI** | `./lab` | Mouse-copyable terminal quest tracker (`1`–`6` quests, `h` hint, `s` exact solution, `b` live classroom board, `w` launch web UI). |
+| **Instructor Projector (LBL Wi-Fi / VPN)** | Open **`https://training-hub.bk.lbl.gov/?view=classroom`** | Live classroom leaderboard + real-time Berkelium GPU/Dynamic MIG pool telemetry. |
 
 > **CLI quick checks:** Run `./lab --check` anytime for a one-shot checklist summary, or `./lab --board` to print the classroom leaderboard in plain text. Your verified quest checkmarks persist in `ConfigMap/lab-state-<your-name>` even after you delete pods/jobs to free GPUs!
 
@@ -230,3 +213,20 @@ Clean up any remaining objects in `training-nov-26` at any time:
 - **Berkelium Coder (Cloud IDEs)**: [https://coder.bk.lbl.gov](https://coder.bk.lbl.gov)
 - **Berkelium AI Agent MCP Server**: `https://berkelium.scs.lbl.gov/mcp` (`get_cluster_rules_and_specs`, `validate_manifest`)
 - **Recommended CLI/GUI Tools**: [K9s](https://k9scli.io) (`k9s -n training-nov-26`) and [Radar](https://radarhq.io) (`kubectl radar`)
+
+<details>
+<summary><strong>Optional (Power Users / After Workshop): Running <code>kubectl</code> Directly From Your Laptop</strong></summary>
+
+During the live workshop, we strongly recommend using **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** so you don't need VPN or local IPv6 setup. If you already have `kubectl` installed and want to run directly from your laptop:
+
+1. **Network Requirements**: Connect to **LBNL Wi-Fi (`lblnet`) or LBNL VPN** with **IPv6** enabled (Berkelium's API server `https://[2620:83:8000:157::f]:6443` is IPv6-only).
+2. **Configure `~/.kube/config` & Suffix**:
+   ```bash
+   git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git
+   cd berkelium-training-nov-26
+   ./setup.sh
+   ```
+   Enter the **Workshop Join Code** (fetches `kubeconfig` from `https://training-hub.bk.lbl.gov/kubeconfig` over LBNL Wi-Fi/VPN), or paste the path to a downloaded `~/Downloads/kubeconfig.yaml` / raw `eyJ...` token. Any existing `~/.kube/config` is backed up to `~/.kube/config.pre-berkelium.bak` first.
+3. **Open the Quest UI Locally**: Run `./lab` in your terminal, or forward the in-cluster hub with `kubectl port-forward svc/training-hub 8080:80` and open `http://localhost:8080` *(outside of workshops, create your own project namespace anytime at **[berkelium.scs.lbl.gov/portal](https://berkelium.scs.lbl.gov/portal)**)*.
+
+</details>
