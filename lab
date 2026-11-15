@@ -1912,7 +1912,7 @@ table.matrix tbody th {
   </div>
   <div class="controls">
     <form class="user-form" id="user-form">
-      <label for="user-input">Attendee Suffix:</label>
+      <label for="user-input">Attendee:</label>
       <input id="user-input" name="user" type="text" placeholder="e.g. alice" autocomplete="off">
       <button type="submit" class="btn primary">Set</button>
     </form>
@@ -2267,7 +2267,7 @@ function renderClassroomView() {
       return `<td style="color:var(--muted);">—</td>`;
     }).join('');
     return `<tr>
-      <th scope="row">-${esc(st.user)}</th>
+      <th scope="row">${esc(st.user)}</th>
       ${cells}
       <td><strong>${esc(st.score)}/${esc(latestSnap.total_checks)}</strong></td>
     </tr>`;
@@ -2523,7 +2523,7 @@ def run_tui(k8s: K8sClient, user: str) -> int:
             if snap.get("mode") == "demo"
             else ("\033[32mLIVE\033[0m" if snap.get("connected") else "\033[31mOFFLINE\033[0m")
         )
-        u_label = f"-{user}" if user else "(run ./setup.sh)"
+        u_label = user if user else "(run ./setup.sh)"
         out.append(
             f"\033[1;36m=== BERKELIUM QUEST LAB ===\033[0m  "
             f"[{conn_tag} ns:{snap.get('namespace')}]  "
@@ -2579,7 +2579,7 @@ def run_tui(k8s: K8sClient, user: str) -> int:
                         cols.append(f"\033[33m{dc}/{len(q['checks'])}  \033[0m")
                     else:
                         cols.append("\033[2m ·   \033[0m")
-                out.append(f"-{st['user']:<17} " + " ".join(cols) + f"  {st['score']}/{total}")
+                out.append(f"{st['user']:<18} " + " ".join(cols) + f"  {st['score']}/{total}")
         else:
             q = QUESTS[quest_idx]
             out.append(f"\033[1;33mQuest {q['num']} — {q['title']}\033[0m \033[2m({q['duration']} · {q['module']})\033[0m")
@@ -2698,7 +2698,7 @@ def print_check_summary(k8s: K8sClient, user: str) -> int:
     score = (u_state or {}).get("score", 0)
     total = snap.get("total_checks", 11)
 
-    print(f"=== Berkelium Quest Verification (attendee: -{user or 'unset'} | {score}/{total} verified) ===")
+    print(f"=== Berkelium Quest Verification (attendee: {user or 'unset'} | {score}/{total} verified) ===")
     if not snap.get("connected"):
         print(f"Warning: Cluster unreachable ({snap.get('error')})")
     for q in QUESTS:
@@ -2723,7 +2723,7 @@ def print_board_summary(k8s: K8sClient) -> int:
         for q in QUESTS:
             dc = sum(1 for c in q["checks"] if st["checks"].get(c["id"]))
             cols.append(" ✓   " if dc == len(q["checks"]) else (f"{dc}/{len(q['checks'])}  " if dc else " ·   "))
-        print(f"-{st['user']:<17} " + " ".join(cols) + f" {st['score']}/{total}")
+        print(f"{st['user']:<18} " + " ".join(cols) + f" {st['score']}/{total}")
     return 0
 
 
