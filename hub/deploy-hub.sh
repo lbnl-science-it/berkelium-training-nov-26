@@ -2,9 +2,13 @@
 # Deploy or update the shared in-cluster Berkelium Classroom Hub (svc/training-hub)
 # AND configure passcode-protected kubeconfig distribution (zero secrets in GitHub!).
 #
-# Usage (run once before the workshop from LBL network / VPN / Ziti):
-#   ./hub/deploy-hub.sh                 # Auto-generates (or reuses) a Workshop Join Code
-#   ./hub/deploy-hub.sh bk-nov26        # Explicitly set the Workshop Join Code to 'bk-nov26'
+# Usage (run from LBL network / VPN / Ziti):
+#   ./hub/deploy-hub.sh                    # Deploy/update hub (reuses existing Join Code)
+#   ./hub/deploy-hub.sh bk-nov26           # Deploy/update hub with explicit Join Code 'bk-nov26'
+#   ./hub/deploy-hub.sh --reset            # Wipe ALL attendee workloads & scoreboard + refresh 24h token (keeps Join Code)
+#   ./hub/deploy-hub.sh --reset --new-code # Wipe ALL attendee workloads & scoreboard + generate a brand-new Join Code
+#   ./hub/deploy-hub.sh --reset bk-run2    # Wipe ALL attendee workloads & scoreboard + set Join Code to 'bk-run2'
+#   ./hub/deploy-hub.sh --teardown         # Delete everything (all attendee workloads, scoreboard, AND training-hub itself)
 
 set -euo pipefail
 
@@ -19,15 +23,85 @@ fi
 
 NS="${TRAINING_NAMESPACE:-training-nov-26}"
 
+RESET_STATE=0
+NEW_CODE=0
+TEARDOWN=0
+JOIN_CODE=""
+
+for arg in "$@"; do
+  case "$arg" in
+    --reset|--clean)
+      RESET_STATE=1
+      ;;
+    --new-code|--rotate-code)
+      NEW_CODE=1
+      ;;
+    --teardown|--destroy)
+      TEARDOWN=1
+      ;;
+    -h|--help)
+      sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    -*)
+      echo "Unknown flag: $arg (try --help)" >&2
+      exit 1
+      ;;
+    *)
+      JOIN_CODE="$arg"
+      ;;
+  esac
+done
+
+wipe_attendee_state() {
+  echo "=== Cleaning all attendee workloads & leaderboard state in '$NS' ==="
+  # Pause training-hub during wipe so no in-flight poll re-persists deleted state
+  kubectl -n "$NS" scale deployment/training-hub --replicas=0 2>/dev/null || true
+
+  # 1. Delete attendee HTTPRoutes, Deployments, and Services (preserving training-hub & kubernetes)
+  kubectl -n "$NS" delete httproute -l 'app!=training-hub' --ignore-not-found
+  kubectl -n "$NS" delete deployment -l 'app!=training-hub' --ignore-not-found
+  for svc in $(kubectl -n "$NS" get svc -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true); do
+    if [ "$svc" != "training-hub" ] && [ "$svc" != "kubernetes" ]; then
+      kubectl -n "$NS" delete svc "$svc" --ignore-not-found
+    fi
+  done
+
+  # 2. Delete all attendee Jobs, standalone Pods, DRA claims/templates, and PVCs
+  kubectl -n "$NS" delete jobs --all --ignore-not-found --timeout=45s || true
+  kubectl -n "$NS" delete pods -l 'app!=training-hub' --ignore-not-found --timeout=45s || true
+  kubectl -n "$NS" delete resourceclaimtemplate --all --ignore-not-found 2>/dev/null || true
+  kubectl -n "$NS" delete resourceclaim --all --ignore-not-found 2>/dev/null || true
+  kubectl -n "$NS" delete pvc --all --ignore-not-found --timeout=45s || true
+
+  # 3. Delete sticky scoreboard ConfigMaps (lab-state-<user>), preserving training-hub-code & kube-root-ca.crt
+  kubectl -n "$NS" delete configmap -l app.kubernetes.io/part-of=berkelium-lab --ignore-not-found
+  echo "=== Attendee workloads & scoreboard ConfigMaps wiped ==="
+}
+
+if [ "$TEARDOWN" -eq 1 ]; then
+  wipe_attendee_state
+  echo "=== Removing Classroom Hub infrastructure from '$NS' ==="
+  kubectl -n "$NS" delete -f "$REPO_ROOT/hub/training-hub.yaml" --ignore-not-found
+  kubectl -n "$NS" delete configmap training-hub-code --ignore-not-found
+  kubectl -n "$NS" delete secret training-hub-join --ignore-not-found
+  rm -f /tmp/berkelium-training-kubeconfig.yaml
+  echo "=== Teardown complete (namespace '$NS', RBAC, and LimitRange preserved) ==="
+  exit 0
+fi
+
+if [ "$RESET_STATE" -eq 1 ]; then
+  wipe_attendee_state
+fi
+
 # Public Berkelium API endpoint & cluster CA certificate (public X.509 CA cert, NOT a secret)
 CLUSTER_SERVER="https://[2620:83:8000:157::f]:6443"
 CLUSTER_CA_B64="LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJpekNDQVRDZ0F3SUJBZ0lSQU5JNU1YaGRwSk1XckswbXUyMERxVjR3Q2dZSUtvWkl6ajBFQXdJd0ZURVQKTUJFR0ExVUVDaE1LYTNWaVpYSnVaWFJsY3pBZUZ3MHlOakEzTURFeU16TTNNelJhRncwek5qQTJNamd5TXpNMwpNelJhTUJVeEV6QVJCZ05WQkFvVENtdDFZbVZ5Ym1WMFpYTXdXVEFUQmdjcWhrak9QUUlCQmdncWhrak9QUU1CCkJ3TkNBQVIybHJORkhZUkZDemtvQVZOTHRIMEZRQWJVSm4veFdJb0x6NEQ2VVRadjU0bk1ORy9pWk9wRitDY0sKWmZOd2h1NWFmWStFdkRHVWtqRXZDYUFGN053dW8yRXdYekFPQmdOVkhROEJBZjhFQkFNQ0FvUXdIUVlEVlIwbApCQll3RkFZSUt3WUJCUVVIQXdFR0NDc0dBUVVGQndNQ01BOEdBMVVkRXdFQi93UUZNQU1CQWY4d0hRWURWUjBPCkJCWUVGSjRaTEorOWd1OVpMS3NQVWU4S2hpbnNSbmdqTUFvR0NDcUdTTTQ5QkFNQ0Ewa0FNRVlDSVFEMFNQdTAKT3ZnNzJNRmpEMklzcE84TXZ3dVBPc2NwZVd3MUUyOEwyRTVCRWdJaEFLSkVqQmdVMCs2REQ2ZUZMVDJuNmlGZgo4OWE3Tm5keC9DbVpOb0M1ZmlwTwotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg=="
 
 echo "=== Deploying Berkelium Classroom Hub to namespace '$NS' ==="
 
-# 1. Determine Workshop Join Code (explicit arg > existing Secret > newly generated)
-JOIN_CODE="${1:-}"
-if [ -z "$JOIN_CODE" ]; then
+# 1. Determine Workshop Join Code (explicit arg > existing Secret [unless --new-code] > newly generated)
+if [ -z "$JOIN_CODE" ] && [ "$NEW_CODE" -eq 0 ]; then
   EXISTING_B64="$(kubectl -n "$NS" get secret training-hub-join -o jsonpath='{.data.code}' 2>/dev/null || true)"
   if [ -n "$EXISTING_B64" ]; then
     JOIN_CODE="$(printf '%s' "$EXISTING_B64" | base64 -d 2>/dev/null || printf '%s' "$EXISTING_B64" | base64 -D 2>/dev/null || true)"

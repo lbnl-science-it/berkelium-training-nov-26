@@ -747,12 +747,19 @@ class K8sClient:
         configmaps: list[dict[str, Any]],
         nodes: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        pods_by_name = {p.get("metadata", {}).get("name", ""): p for p in pods}
-        jobs_by_name = {j.get("metadata", {}).get("name", ""): j for j in jobs}
-        deps_by_name = {d.get("metadata", {}).get("name", ""): d for d in deployments}
-        svcs_by_name = {s.get("metadata", {}).get("name", ""): s for s in services}
-        pvcs_by_name = {p.get("metadata", {}).get("name", ""): p for p in pvcs}
-        routes_by_name = {r.get("metadata", {}).get("name", ""): r for r in httproutes}
+        def _active(items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+            return {
+                it.get("metadata", {}).get("name", ""): it
+                for it in items
+                if not it.get("metadata", {}).get("deletionTimestamp")
+            }
+
+        pods_by_name = _active(pods)
+        jobs_by_name = _active(jobs)
+        deps_by_name = _active(deployments)
+        svcs_by_name = _active(services)
+        pvcs_by_name = _active(pvcs)
+        routes_by_name = _active(httproutes)
 
         # Discover all active trainees from lab-state-* ConfigMaps AND suffixed K8s objects
         persisted: dict[str, dict[str, str]] = {}
@@ -811,6 +818,9 @@ class K8sClient:
                 routes_by_name=routes_by_name,
             )
             saved = dict(persisted.get(u, {}))
+            if not saved:
+                with self._persisted_lock:
+                    self._persisted_mem.pop(u, None)
             newly_added = False
             for cid, is_ok in live.items():
                 if is_ok and cid not in saved:

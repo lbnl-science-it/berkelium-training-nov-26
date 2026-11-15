@@ -42,7 +42,7 @@ For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk
    kubectl get pods
    ```
 
-> **Instructor Pre-Workshop Setup (1 Command):** Before class, run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to display on Slide 6.
+> **Instructor Setup & Reset (1 Command):** Before class, run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to display on Slide 6. Between dry-runs or cohorts, run **`./hub/deploy-hub.sh --reset`** (or `--reset --new-code`) to wipe all attendee workloads + scoreboard `ConfigMap`s, or **`./hub/deploy-hub.sh --teardown`** after the workshop ends.
 
 ### Launch the Interactive Quest Lab (`./lab`)
 
