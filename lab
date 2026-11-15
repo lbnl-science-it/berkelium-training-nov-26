@@ -2335,6 +2335,7 @@ setInterval(pollState, 2500);
 
 class DualStackHTTPServer(http.server.ThreadingHTTPServer):
     address_family = socket.AF_INET6
+    allow_reuse_address = True
 
     def server_bind(self) -> None:
         try:
@@ -2342,6 +2343,35 @@ class DualStackHTTPServer(http.server.ThreadingHTTPServer):
         except Exception:
             pass
         super().server_bind()
+
+
+def _stop_existing_lab_web() -> list[int]:
+    """Terminate any prior './lab --web' process owned by the current user so restarts never hit EADDRINUSE."""
+    import signal
+
+    killed: list[int] = []
+    my_pid = os.getpid()
+    my_uid = os.getuid() if hasattr(os, "getuid") else -1
+    if os.path.isdir("/proc"):
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if pid == my_pid:
+                continue
+            try:
+                if my_uid >= 0 and os.stat(f"/proc/{pid}").st_uid != my_uid:
+                    continue
+                raw = open(f"/proc/{pid}/cmdline", "rb").read().decode("utf-8", "ignore")
+                parts = [p for p in raw.split("\x00") if p]
+                if any(p.endswith("/lab") or p in ("./lab", "lab") for p in parts) and "--web" in parts:
+                    os.kill(pid, signal.SIGTERM)
+                    killed.append(pid)
+            except OSError:
+                continue
+    if killed:
+        time.sleep(0.35)
+    return killed
 
 
 def _load_join_bundle() -> tuple[str, bytes] | None:
@@ -2468,17 +2498,34 @@ def make_http_handler(k8s: K8sClient):
 
 
 def start_web_server(k8s: K8sClient, host: str, port: int, background: bool = False) -> http.server.ThreadingHTTPServer:
+    import errno
+
     handler = make_http_handler(k8s)
-    if ":" in host:
-        try:
-            srv: http.server.ThreadingHTTPServer = DualStackHTTPServer((host, port), handler)
-        except OSError:
-            if host == "::":
-                srv = http.server.ThreadingHTTPServer(("0.0.0.0", port), handler)
+
+    def _bind_once() -> http.server.ThreadingHTTPServer:
+        if ":" in host:
+            try:
+                return DualStackHTTPServer((host, port), handler)
+            except OSError as e:
+                if e.errno == errno.EADDRINUSE:
+                    raise
+                if host == "::":
+                    return http.server.ThreadingHTTPServer(("0.0.0.0", port), handler)
+                raise
+        return http.server.ThreadingHTTPServer((host, port), handler)
+
+    try:
+        srv = _bind_once()
+    except OSError as e:
+        if e.errno == errno.EADDRINUSE:
+            killed = _stop_existing_lab_web()
+            if killed:
+                print(f"Restarting ./lab --web on port {port} (stopped previous PID {', '.join(map(str, killed))})...")
+                srv = _bind_once()
             else:
                 raise
-    else:
-        srv = http.server.ThreadingHTTPServer((host, port), handler)
+        else:
+            raise
 
     if background:
         t = threading.Thread(target=srv.serve_forever, daemon=True)
@@ -2730,6 +2777,7 @@ def print_board_summary(k8s: K8sClient) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Berkelium Interactive Quest Engine & Live Classroom Hub")
     parser.add_argument("--web", action="store_true", help="Run Browser Quest UI & Classroom Live HTTP server")
+    parser.add_argument("--stop", action="store_true", help="Stop any background ./lab --web server")
     parser.add_argument("--host", default="::", help="Bind address for --web (default: '::' dual-stack IPv6+IPv4)")
     parser.add_argument("--port", type=int, default=8080, help="Port for --web (default: 8080)")
     parser.add_argument("--user", default="", help="Override attendee suffix (default: from .training-user)")
@@ -2741,6 +2789,10 @@ def main() -> int:
     user = sanitize_user(args.user) or read_local_user()
     k8s = K8sClient(demo_mode=args.demo)
 
+    if args.stop:
+        killed = _stop_existing_lab_web()
+        print(f"Stopped ./lab --web (PID {', '.join(map(str, killed))})." if killed else "No background ./lab --web process found.")
+        return 0
     if args.check:
         return print_check_summary(k8s, user)
     if args.board:
