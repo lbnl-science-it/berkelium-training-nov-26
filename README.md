@@ -27,7 +27,7 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk.lbl.gov`)**—it works from any browser over standard HTTPS with **zero VPN, zero IPv6 setup, and zero local installs**, while keeping cluster credentials out of public GitHub:
 
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
-2. Click **Templates** → choose **`Kubernetes CLI & Workshop`** (`k8s-cli` — lightweight `2` CPU / `4` GB workspace that boots in ~5 seconds with `kubectl`, `k9s`, & `python3` pre-installed).
+2. Click **Templates** → choose **`Kubernetes CLI & Workshop`** (`k8s-cli` — lightweight `2` CPU / `4` GB workspace that boots in ~5 seconds with `kubectl`, `k9s`, `radar`, & `python3` pre-installed).
 3. Click **Create Workspace** — `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` is pre-filled, cloned into `~/berkelium-training-nov-26`, and **`Quest Lab`** starts automatically in the background!
 4. Click the **`Quest Lab`** button on your Coder workspace dashboard:
    - Enter the **Workshop Join Code** shown on the instructor's slide / Zoom chat (e.g., `bk-2s38m`) and confirm your pre-filled **Attendee Name**.
@@ -200,7 +200,7 @@ Clean up any remaining objects in `training-nov-26` at any time:
 - **Berkelium Portal & Docs**: [https://berkelium.scs.lbl.gov](https://berkelium.scs.lbl.gov) ([Documentation](https://berkelium.scs.lbl.gov/docs/))
 - **Berkelium Coder (Cloud IDEs)**: [https://coder.bk.lbl.gov](https://coder.bk.lbl.gov)
 - **Berkelium AI Agent MCP Server**: `https://berkelium.scs.lbl.gov/mcp` (`get_cluster_rules_and_specs`, `validate_manifest`)
-- **Recommended CLI/GUI Tools**: [K9s](https://k9scli.io) (`k9s -n training-nov-26`) and [Radar](https://radarhq.io) (`kubectl radar`)
+- **Recommended CLI/GUI Tools**: [K9s](https://k9scli.io) (`k9s -n training-nov-26`) and [Radar](https://radarhq.io) (`kubectl radar -n training-nov-26 --namespace-scope` — Coder auto-proxies port `9280` in your browser)
 
 <details>
 <summary><strong>Optional (Power Users / After Workshop): Running <code>kubectl</code> Directly From Your Laptop</strong></summary>

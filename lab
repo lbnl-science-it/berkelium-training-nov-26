@@ -287,7 +287,8 @@ EOF""",
             "3) Test your live HTTPS endpoint from inside Coder (be sure to include https://):\n"
             "     curl https://training-demo-{u}.bk.lbl.gov\n"
             "   Run it 3–4 times and watch 'Served by test-http-{u}-...' alternate between your 2 Pod replicas!\n"
-            "   (On LBL campus Wi-Fi or VPN, you can also open https://training-demo-{u}.bk.lbl.gov in your browser.)"
+            "   (On LBL campus Wi-Fi or VPN, you can also open https://training-demo-{u}.bk.lbl.gov in your browser.)\n"
+            "   Tip: Run 'kubectl radar -n training-nov-26 --namespace-scope' to visualize your HTTPRoute -> Service -> Pods topology graph in your browser (Coder auto-proxies port 9280)!"
         ),
         "solution_cmds": [
             "kubectl apply -f scripts/04-deployments-services-ingresses/01-http-deployment.yaml -f scripts/04-deployments-services-ingresses/03-service.yaml -f scripts/04-deployments-services-ingresses/04-httproute.yaml",
