@@ -154,7 +154,7 @@ EOF""",
         ),
         "solution_cmds": [
             "kubectl apply -f scripts/02-gpu-pods/03-dra-gpu-pod.yaml",
-            "kubectl delete -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml --ignore-not-found && kubectl apply -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml",
+            "kubectl apply -f scripts/02-gpu-pods/04-dynamic-mig-job.yaml",
             "kubectl wait --for=condition=Ready pod/dra-gpu-pod-{u} --timeout=180s",
             "kubectl wait --for=condition=complete job/dynamic-mig-job-{u} --timeout=180s",
             "kubectl logs job/dynamic-mig-job-{u}",
@@ -323,7 +323,6 @@ EOF""",
             "  kubectl logs job/gpu-pytorch-job-{u}"
         ),
         "solution_cmds": [
-            "kubectl delete job parallel-sweep-job-{u} gpu-pytorch-job-{u} --ignore-not-found",
             "kubectl apply -f scripts/05-jobs/02-parallel-job.yaml -f scripts/05-jobs/03-gpu-pytorch-job.yaml",
             "kubectl wait --for=condition=Complete job/parallel-sweep-job-{u} job/gpu-pytorch-job-{u} --timeout=180s",
             "kubectl logs job/gpu-pytorch-job-{u}",
