@@ -280,7 +280,7 @@ for subdir in ("scripts", "challenges"):
         continue
     for root, _, files in os.walk(scan_dir):
         for fn in sorted(files):
-            if fn == "_common.sh":
+            if fn in ("_common.sh", "run-walkthrough.sh"):
                 continue
             if fn.endswith((".yaml", ".sh")):
                 target_files.append(os.path.join(root, fn))

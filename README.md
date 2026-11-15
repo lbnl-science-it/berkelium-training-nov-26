@@ -12,7 +12,7 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 | Time | Duration | Module | Directory | What You Will Do |
 | :--- | :--- | :--- | :--- | :--- |
-| `00:00–00:12` | **12 min** | **00. Coder Cloud Workspaces** | [`scripts/00-coder/`](scripts/00-coder/) | Launch a Coder workspace (`k8s-cli` or `cuda`), verify `/home/coder` persistence & PyTorch GPU, and see Coder CLI / Remote-SSH. |
+| `00:00–00:12` | **12 min** | **00. Coder Cloud Workspaces** | [`coder.bk.lbl.gov`](https://coder.bk.lbl.gov) | Launch `Kubernetes CLI & Workshop` (`k8s-cli`), open `Quest Lab`, enter today's Join Code, and open `code-server`. |
 | `00:12–00:19` | **7 min** | **01. Nodes & Interactive Pods** | [`scripts/01-nodes-and-pods/`](scripts/01-nodes-and-pods/) | Inspect Berkelium Talos/IPv6 nodes & `LimitRange`, run single- and multi-container pods, view logs, and `kubectl exec`. |
 | `00:19–00:29` | **10 min** | **02. GPUs, DRA & Dynamic MIG** | [`scripts/02-gpu-pods/`](scripts/02-gpu-pods/) | Discover `B300`/`H200`/`H100`/`A100`/`A40`/`MI100` accelerators, run `nvidia-smi` via Extended Resources, claim GPUs via Kubernetes DRA, and carve a **Dynamic MIG** slice. |
 | `00:29–00:37` | **8 min** | **03. Storage (`ceph-rbd`, `cephfs`, NVMe)** | [`scripts/03-storage/`](scripts/03-storage/) | Compare RWO block (`ceph-rbd`), RWX shared POSIX (`cephfs`), and ephemeral node-local NVMe scratch (`emptyDir`). |
@@ -53,8 +53,9 @@ Complete the workshop as **6 live-verified hands-on quests** (including real "Br
 > **CLI quick checks:** Run `./lab --check` anytime for a one-shot checklist summary, or `./lab --board` to print the classroom leaderboard in plain text. Your verified quest checkmarks persist in `ConfigMap/lab-state-<your-name>` even after you delete pods/jobs to free GPUs!
 
 ### Guided Step-by-Step Scripts (Alternative / Reference Mode)
-1. **Zero Name Collisions (`./setup.sh`)**: Running `./setup.sh` (auto-detects your Coder username or prompts once) stamps your unique suffix (e.g., `-alice`) directly into all local `.yaml` and `.sh` files across [`scripts/`](scripts/) and [`challenges/`](challenges/) (`test-pod-alice`, `quest1-pod-alice`, `training-demo-alice.bk.lbl.gov`). Plain `kubectl apply -f ...` works out of the box without colliding with classmates! *(Run `./setup.sh --reset` anytime to restore base names.)*
-2. **Interactive Editable Prompt**: Each `./scripts/.../*.sh` script walks through the exercise step-by-step and **pre-fills the exact `kubectl` command at an editable `$ ` prompt**:
+1. **Interactive Walkthrough Menu (`./scripts/run-walkthrough.sh`)**: Prefer guided terminal exercises over `Quest Lab`? Run `./scripts/run-walkthrough.sh` to step through all **20 exercises across Modules `01`–`06`** in order (or jump directly to any module with `./scripts/run-walkthrough.sh m2`).
+2. **Zero Name Collisions (`./setup.sh`)**: Configuring via `Quest Lab` or `./setup.sh` stamps your unique suffix (e.g., `-alice`) directly into all local `.yaml` and `.sh` files across [`scripts/`](scripts/) and [`challenges/`](challenges/) (`test-pod-alice`, `quest1-pod-alice`, `training-demo-alice.bk.lbl.gov`). Plain `kubectl apply -f ...` works out of the box without colliding with classmates! *(Run `./setup.sh --reset` anytime to restore base names.)*
+3. **Interactive Editable Prompt**: Each `./scripts/.../*.sh` script walks through the exercise step-by-step and **pre-fills the exact `kubectl` command at an editable `$ ` prompt**:
    - Press **`Enter`** to execute the command, or **edit it inline** first (e.g., change flags, try `kubectl exec -it ... -- /bin/bash`).
    - Type **`s`** to skip a step or **`q`** (`Ctrl+C`) to quit.
    - Pass **`--print`** to display all commands without running them, or **`--yes`** to run all steps non-interactively.
@@ -76,21 +77,12 @@ Complete the workshop as **6 live-verified hands-on quests** (including real "Br
 ## Hands-On Exercises Walkthrough
 
 ### Module 00 — Coder Cloud Development Environments (`12 min`)
-Directory: [`scripts/00-coder/`](scripts/00-coder/)
 
 1. **Explore Templates at [coder.bk.lbl.gov](https://coder.bk.lbl.gov)**:
    - **AI & Agents**: `ai-agents` (Claude Code, OpenCode, Aider, Gemini CLI, Codex pre-wired to **LBNL CBorg** `api.cborg.lbl.gov`), `openclaw`, `vllm`, `ollama-webui`, `comfyui`.
    - **GPU & Data Science**: `cuda` (PyTorch `2.14+cu130` with native NVIDIA B300 Blackwell support, JupyterLab, TensorBoard), `data-lab` (Marimo, DuckDB, Polars), `bio-chem-lab`, `rstudio`.
    - **Desktops, VMs & Systems**: `selkies` (GPU KDE Plasma), `desktop` (XFCE noVNC), `kubevirt` (full KVM Linux VM with `systemd` & Docker), `k8s-cli`, `cloud-native`, `golang`, `nodejs`, `universal`.
-2. **Verify Your Workspace & Run PyTorch Check** (inside your Coder terminal):
-   ```bash
-   ./scripts/00-coder/01-verify-coder-workspace.sh
-   python3 ./scripts/00-coder/02-pytorch-gpu-check.py
-   ```
-3. **Connect Local VS Code / Cursor & Stop Idle Workspaces**:
-   ```bash
-   ./scripts/00-coder/03-coder-cli-and-ssh.sh
-   ```
+2. **Optional Local Laptop SSH / VS Code Remote**: Install the Coder CLI anytime (`curl -fsSL https://coder.bk.lbl.gov/install.sh | sh`), authenticate with `coder login https://coder.bk.lbl.gov`, and run `coder config-ssh --yes` to connect local VS Code or `ssh coder.<workspace>` directly to any workspace (including KubeVirt Linux VMs).
 
 ---
 
