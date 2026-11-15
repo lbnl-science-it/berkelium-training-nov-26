@@ -520,6 +520,7 @@ class K8sClient:
         self.token = ""
         self.ssl_ctx: ssl.SSLContext | None = None
         self.kubeconfig_path = ""
+        self._kubeconfig_mtime = 0.0
         self._lock = threading.Lock()
         self._cache_ts = 0.0
         self._cache_data: dict[str, Any] | None = None
@@ -531,43 +532,45 @@ class K8sClient:
         if not demo_mode:
             self._init_transport()
 
-    def _init_transport(self) -> None:
-        sa_tok = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-        sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-        sa_ns = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
-        if os.path.isfile(sa_tok):
-            try:
-                with open(sa_tok, "r", encoding="utf-8") as f:
-                    self.token = f.read().strip()
-                if os.path.isfile(sa_ns):
-                    with open(sa_ns, "r", encoding="utf-8") as f:
-                        self.namespace = f.read().strip() or self.namespace
-                host = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
-                port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
-                if ":" in host and not host.startswith("["):
-                    host = f"[{host}]"
-                self.server = f"https://{host}:{port}"
-                ctx = ssl.create_default_context(cafile=sa_ca if os.path.isfile(sa_ca) else None)
-                self.ssl_ctx = ctx
-                self.mode = "in-cluster"
-                return
-            except Exception:
-                pass
-
-        candidates = []
+    def _kubeconfig_candidates(self) -> list[str]:
+        candidates: list[str] = []
         if os.environ.get("KUBECONFIG"):
-            candidates.extend(os.environ["KUBECONFIG"].split(os.pathsep))
+            candidates.extend(p for p in os.environ["KUBECONFIG"].split(os.pathsep) if p)
         candidates.append(os.path.join(REPO_ROOT, "kubeconfig.yaml"))
         candidates.append(os.path.expanduser("~/.kube/config"))
+        return candidates
 
-        for kc in candidates:
+    def _maybe_reload_transport(self) -> None:
+        if self.demo_mode:
+            return
+        for kc in self._kubeconfig_candidates():
+            if kc and os.path.isfile(kc):
+                try:
+                    mtime = os.path.getmtime(kc)
+                except OSError:
+                    mtime = 0.0
+                if kc != self.kubeconfig_path or mtime != self._kubeconfig_mtime or self.mode not in ("rest-kubeconfig", "kubectl"):
+                    self._init_transport()
+                return
+        if self.mode == "uninitialized":
+            self._init_transport()
+
+    def _init_transport(self) -> None:
+        # 1. Always prefer explicit kubeconfig files (~/.kube/config from ./setup.sh, KUBECONFIG, ./kubeconfig.yaml).
+        #    Inside Coder workspace pods, /var/run/secrets/kubernetes.io/serviceaccount/token belongs to the
+        #    unprivileged 'coder' namespace default ServiceAccount and MUST NOT shadow ~/.kube/config!
+        for kc in self._kubeconfig_candidates():
             if kc and os.path.isfile(kc):
                 self.kubeconfig_path = kc
+                try:
+                    self._kubeconfig_mtime = os.path.getmtime(kc)
+                except OSError:
+                    self._kubeconfig_mtime = 0.0
                 parsed = _parse_simple_kubeconfig(kc)
                 if parsed:
                     self.server = parsed["server"]
                     self.token = parsed["token"]
-                    self.namespace = parsed.get("namespace", self.namespace)
+                    self.namespace = os.environ.get("TRAINING_NAMESPACE") or parsed.get("namespace", DEFAULT_NAMESPACE)
                     ctx = ssl.create_default_context()
                     if parsed.get("ca_pem"):
                         ctx.load_verify_locations(cadata=parsed["ca_pem"])
@@ -578,8 +581,34 @@ class K8sClient:
                     self.mode = "kubectl"
                     return
 
-        if shutil.which("kubectl"):
-            self.mode = "kubectl"
+        # 2. In-cluster ServiceAccount (used by training-hub Deployment in training-nov-26; skip inside Coder workspaces)
+        sa_tok = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        sa_ns = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+        is_coder_workspace = bool(os.environ.get("CODER_AGENT_TOKEN"))
+        if os.path.isfile(sa_tok) and not is_coder_workspace:
+            try:
+                pod_ns = ""
+                if os.path.isfile(sa_ns):
+                    with open(sa_ns, "r", encoding="utf-8") as f:
+                        pod_ns = f.read().strip()
+                if pod_ns != "coder":
+                    with open(sa_tok, "r", encoding="utf-8") as f:
+                        self.token = f.read().strip()
+                    self.namespace = os.environ.get("TRAINING_NAMESPACE") or pod_ns or self.namespace
+                    host = os.environ.get("KUBERNETES_SERVICE_HOST", "kubernetes.default.svc")
+                    port = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+                    if ":" in host and not host.startswith("["):
+                        host = f"[{host}]"
+                    self.server = f"https://{host}:{port}"
+                    ctx = ssl.create_default_context(cafile=sa_ca if os.path.isfile(sa_ca) else None)
+                    self.ssl_ctx = ctx
+                    self.mode = "in-cluster"
+                    return
+            except Exception:
+                pass
+
+        self.mode = "uninitialized"
 
     def _rest_request(
         self,
@@ -618,7 +647,7 @@ class K8sClient:
             return data.get("items", [])
         if self.mode == "kubectl":
             return self._kubectl_get(kubectl_kind, cluster_scoped=cluster_scoped)
-        raise RuntimeError("No Kubernetes credentials found (place kubeconfig.yaml in repo root or set KUBECONFIG).")
+        raise RuntimeError("No Kubernetes credentials found — run ./setup.sh first to install ~/.kube/config.")
 
     def save_progress(self, user: str, completed_map: dict[str, str]) -> None:
         if not user or self.demo_mode:
@@ -663,6 +692,7 @@ class K8sClient:
             pass
 
     def get_snapshot(self, force: bool = False) -> dict[str, Any]:
+        self._maybe_reload_transport()
         now = time.monotonic()
         with self._lock:
             if not force and self._cache_data is not None and (now - self._cache_ts) < 2.0:
@@ -866,6 +896,7 @@ class K8sClient:
             "connected": connected,
             "mode": self.mode,
             "namespace": self.namespace,
+            "local_user": local_u,
             "error": error,
             "updated_at": now_iso,
             "total_checks": len(ALL_CHECK_IDS),
@@ -2240,8 +2271,12 @@ function renderClassroomView() {
 
 async function pollState() {
   try {
-    const res = await fetch('/api/state', { cache: 'no-store' });
+    const res = await fetch('api/state', { cache: 'no-store' });
     latestSnap = await res.json();
+    if (!activeUser && latestSnap.local_user) {
+      activeUser = sanitizeUser(latestSnap.local_user);
+      document.getElementById('user-input').value = activeUser;
+    }
     const pill = document.getElementById('conn-pill');
     if (latestSnap.connected) {
       pill.dataset.live = 'true';
@@ -2250,7 +2285,9 @@ async function pollState() {
         : `Live · ${latestSnap.namespace}`;
     } else {
       pill.dataset.live = 'false';
-      pill.textContent = 'Cluster Unreachable';
+      pill.textContent = latestSnap.mode === 'uninitialized'
+        ? 'Run ./setup.sh first'
+        : 'Cluster Unreachable';
     }
     renderQuestView();
     renderClassroomView();
@@ -2329,11 +2366,7 @@ def _load_join_bundle() -> tuple[str, bytes] | None:
 
 
 def make_http_handler(k8s: K8sClient):
-    rendered_html = (
-        WEB_HTML.replace("__QUESTS_JSON__", json.dumps(QUESTS))
-        .replace("__INITIAL_USER_JSON__", json.dumps(read_local_user()))
-        .encode("utf-8")
-    )
+    quests_json_str = json.dumps(QUESTS)
     rate_lock = threading.Lock()
     failed_attempts: dict[str, list[float]] = {}
 
@@ -2400,7 +2433,12 @@ def make_http_handler(k8s: K8sClient):
                 self._send_bytes(200, "application/json; charset=utf-8", body)
                 return
             if parsed.path in ("/", "/index.html"):
-                self._send_bytes(200, "text/html; charset=utf-8", rendered_html)
+                html_bytes = (
+                    WEB_HTML.replace("__QUESTS_JSON__", quests_json_str)
+                    .replace("__INITIAL_USER_JSON__", json.dumps(read_local_user()))
+                    .encode("utf-8")
+                )
+                self._send_bytes(200, "text/html; charset=utf-8", html_bytes)
                 return
             self._send_bytes(404, "text/plain; charset=utf-8", b"Not Found")
 
