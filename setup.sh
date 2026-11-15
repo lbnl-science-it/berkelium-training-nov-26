@@ -100,6 +100,14 @@ install_home_kubeconfig() {
         echo "Updated ~/.kube/config (backup saved at ~/.kube/config.pre-berkelium.bak)."
         ;;
     esac
+  else
+    if [ ! -f "$home_kc.pre-berkelium.bak" ]; then
+      cp "$home_kc" "$home_kc.pre-berkelium.bak"
+      chmod 600 "$home_kc.pre-berkelium.bak"
+    fi
+    cp "$src_kc" "$home_kc"
+    chmod 600 "$home_kc"
+    echo "Updated ~/.kube/config (backup saved at ~/.kube/config.pre-berkelium.bak)."
   fi
 }
 
@@ -444,9 +452,9 @@ if command -v kubectl >/dev/null 2>&1 && has_working_kubeconfig; then
   [ -z "${KUBECONFIG:-}" ] && [ -f "$LOCAL_KC" ] && [ ! -f "$HOME/.kube/config" ] && export KUBECONFIG="$LOCAL_KC" || true
   echo ""
   echo "Verifying Berkelium cluster connection ($TRAINING_NS)..."
-  if kubectl -n "$TRAINING_NS" get pods >/dev/null 2>&1; then
+  if kubectl --request-timeout=5s -n "$TRAINING_NS" get pods >/dev/null 2>&1; then
     echo "Connected! 'kubectl' is ready in namespace '$TRAINING_NS'."
-    echo "Next: run './lab' (Terminal Quest UI) or './lab --web' (Browser Quest UI)!"
+    echo "Next: run './lab' (Terminal Quest UI) or open 'Quest Lab' in Coder!"
   else
     echo "(Note: could not reach Berkelium API yet — check LBNL Wi-Fi/VPN, or use a Coder terminal at https://coder.bk.lbl.gov)"
   fi

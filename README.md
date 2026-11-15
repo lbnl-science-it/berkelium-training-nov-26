@@ -22,33 +22,31 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 ---
 
-## Quick Setup — Open Coder & Run `./setup.sh` (2 Minutes)
+## Quick Setup — Open Coder & Join the Workshop (1 Minute)
 
 For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk.lbl.gov`)**—it works from any browser over standard HTTPS with **zero VPN, zero IPv6 setup, and zero local installs**, while keeping cluster credentials out of public GitHub:
 
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
 2. Click **Templates** → choose **`Kubernetes CLI & Workshop`** (`k8s-cli` — lightweight `2` CPU / `4` GB workspace that boots in ~5 seconds with `kubectl`, `k9s`, & `python3` pre-installed).
-3. Click **Create Workspace** — `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` is already pre-filled and cloned automatically into `~/berkelium-training-nov-26`!
-4. Open **Web Terminal** (or **code-server** VS Code Web, which opens directly inside `~/berkelium-training-nov-26`) and run:
-   ```bash
-   ./setup.sh
-   ```
-   - **Prompt 1 (`Workshop Join Code`)**: Enter the short code shown on the instructor's slide / Zoom chat (e.g., `bk-7k9m`). `./setup.sh` fetches a 24-hour workshop `kubeconfig` from the internal training hub and installs `~/.kube/config` (`chmod 600`) automatically so plain `kubectl` works in every terminal tab!
-   - **Prompt 2 (`Your name/initials`)**: Press **Enter** to accept your auto-detected Coder username (stamps `-<your-name>` onto all YAML/scripts so you never collide with classmates).
-5. Verify `kubectl` works:
+3. Click **Create Workspace** — `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` is pre-filled, cloned into `~/berkelium-training-nov-26`, and **`Quest Lab`** starts automatically in the background!
+4. Click the **`Quest Lab`** button on your Coder workspace dashboard:
+   - Enter the **Workshop Join Code** shown on the instructor's slide / Zoom chat (e.g., `bk-2s38m`) and confirm your pre-filled **Attendee Name**.
+   - Clicking **Connect & Configure Workspace** installs `~/.kube/config` (`chmod 600`) so `kubectl` works in every terminal tab, stamps `-<your-name>` onto all YAML/script files so you never collide with classmates, and switches `Quest Lab` to **`Live · training-nov-26`**!
+   - *(Prefer the terminal? You can also run `./setup.sh` inside **Web Terminal** or **code-server** instead.)*
+5. Open **code-server** (or **Web Terminal**) alongside **Quest Lab** and verify `kubectl` works:
    ```bash
    kubectl get pods
    ```
 
 > **Instructor Setup & Reset (1 Command):** Before class, run `./hub/deploy-hub.sh` (or `./hub/deploy-hub.sh bk-nov26` to pick your own join code). It mints a **24-hour auto-expiring `ServiceAccount` token** for `training-nov-26`, stores it in an in-cluster `Secret` (never in Git!), deploys `https://training-hub.bk.lbl.gov`, and prints the **Workshop Join Code** to display on Slide 6. Between dry-runs or cohorts, run **`./hub/deploy-hub.sh --reset`** (or `--reset --new-code`) to wipe all attendee workloads + scoreboard `ConfigMap`s, or **`./hub/deploy-hub.sh --teardown`** after the workshop ends.
 
-### Launch the Interactive Quest Lab (`./lab`)
+### Interactive Quest Lab Modes
 
-After running `./setup.sh`, complete the workshop as **6 live-verified hands-on quests** (including real "Break & Fix" manifests in [`challenges/`](challenges/) that check your actual pods, PVCs, DRA GPU/MIG claims, `HTTPRoute`s, and batch jobs in `training-nov-26` every 3 seconds):
+Complete the workshop as **6 live-verified hands-on quests** (including real "Break & Fix" manifests in [`challenges/`](challenges/) that check your actual pods, PVCs, DRA GPU/MIG claims, `HTTPRoute`s, and batch jobs in `training-nov-26` every 3 seconds):
 
-| Mode inside Coder | Command to Run | What Opens |
+| Mode inside Coder | How to Open | What Opens |
 | :--- | :--- | :--- |
-| **Coder Browser UI (Recommended!)** | `./lab --web` | Starts the Quest & Classroom web app on port `8080`. Coder (`coder.bk.lbl.gov`) **automatically proxies port `8080` over HTTPS** — click the *"Open in Browser"* toast or VS Code **Ports** tab, then run `kubectl` in a second terminal tab! |
+| **Coder `Quest Lab` App (Recommended!)** | Click **`Quest Lab`** in Coder *(auto-started on `:8080`; or run `./lab --web` anytime to restart)* | Browser Quest & Classroom app over HTTPS — includes in-browser **Join Code** setup, copyable commands, hints/solutions, and live progress! |
 | **Terminal TUI** | `./lab` | Mouse-copyable terminal quest tracker (`1`–`6` quests, `h` hint, `s` exact solution, `b` live classroom board, `w` launch web UI). |
 | **Instructor Projector (LBL Wi-Fi / VPN)** | Open **`https://training-hub.bk.lbl.gov/?view=classroom`** | Live classroom leaderboard + real-time Berkelium GPU/Dynamic MIG pool telemetry. |
 

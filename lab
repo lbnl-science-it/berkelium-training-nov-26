@@ -25,6 +25,7 @@ import http.server
 import json
 import os
 import re
+import secrets
 import select
 import shutil
 import socket
@@ -464,13 +465,20 @@ def sanitize_user(raw: str) -> str:
     return s
 
 
-def read_local_user() -> str:
+def read_configured_user() -> str:
     if os.path.isfile(STATE_FILE):
         try:
             with open(STATE_FILE, "r", encoding="utf-8") as f:
                 return sanitize_user(f.read())
         except OSError:
             pass
+    return ""
+
+
+def read_local_user() -> str:
+    configured = read_configured_user()
+    if configured:
+        return configured
     for env_key in ("CODER_WORKSPACE_OWNER_NAME", "CODER_USERNAME"):
         if os.environ.get(env_key):
             return sanitize_user(os.environ[env_key])
@@ -536,6 +544,13 @@ class K8sClient:
 
         if not demo_mode:
             self._init_transport()
+
+    def can_local_setup(self) -> bool:
+        return bool(
+            not self.demo_mode
+            and self.mode != "in-cluster"
+            and os.path.isfile(os.path.join(REPO_ROOT, "setup.sh"))
+        )
 
     def _kubeconfig_candidates(self) -> list[str]:
         candidates: list[str] = []
@@ -799,9 +814,10 @@ class K8sClient:
         # Discover all active trainees from lab-state-* ConfigMaps AND suffixed K8s objects
         persisted: dict[str, dict[str, str]] = {}
         users: set[str] = set()
-        local_u = read_local_user()
-        if local_u:
-            users.add(local_u)
+        configured_u = read_configured_user()
+        suggested_u = read_local_user()
+        if configured_u:
+            users.add(configured_u)
 
         for cm in configmaps:
             meta = cm.get("metadata", {})
@@ -901,7 +917,11 @@ class K8sClient:
             "connected": connected,
             "mode": self.mode,
             "namespace": self.namespace,
-            "local_user": local_u,
+            "local_user": configured_u or suggested_u,
+            "configured_user": configured_u,
+            "suggested_user": suggested_u,
+            "can_setup": self.can_local_setup(),
+            "setup_complete": bool(connected and configured_u),
             "error": error,
             "updated_at": now_iso,
             "total_checks": len(ALL_CHECK_IDS),
@@ -1186,6 +1206,11 @@ def _build_demo_snapshot() -> dict[str, Any]:
         "connected": True,
         "mode": "demo",
         "namespace": DEFAULT_NAMESPACE,
+        "local_user": local_u,
+        "configured_user": local_u,
+        "suggested_user": local_u,
+        "can_setup": False,
+        "setup_complete": True,
         "error": "",
         "updated_at": now_iso,
         "total_checks": len(ALL_CHECK_IDS),
@@ -1229,6 +1254,8 @@ WEB_HTML = r"""<!DOCTYPE html>
   --surface-2-dark: #1f2630;
   --border-light: #d0d8e4;
   --border-dark: #30363d;
+  --input-border-light: #64748b;
+  --input-border-dark: #6e7681;
   --text-light: #0f172a;
   --text-dark: #e6edf3;
   --muted-light: #475569;
@@ -1243,6 +1270,10 @@ WEB_HTML = r"""<!DOCTYPE html>
   --ok-bg-dark: #122b1d;
   --warn-light: #9a5b00;
   --warn-dark: #f0b429;
+  --err-light: #b91c1c;
+  --err-dark: #ff7b72;
+  --err-bg-light: #fef2f2;
+  --err-bg-dark: #2d1215;
   --code-bg: #0b0f16;
   --code-fg: #e6edf3;
   --code-border: #2b3442;
@@ -1251,6 +1282,7 @@ WEB_HTML = r"""<!DOCTYPE html>
   --surface: var(--surface-light);
   --surface-2: var(--surface-2-light);
   --border: var(--border-light);
+  --input-border: var(--input-border-light);
   --text: var(--text-light);
   --muted: var(--muted-light);
   --accent: var(--accent-light);
@@ -1258,12 +1290,15 @@ WEB_HTML = r"""<!DOCTYPE html>
   --ok: var(--ok-light);
   --ok-bg: var(--ok-bg-light);
   --warn: var(--warn-light);
+  --err: var(--err-light);
+  --err-bg: var(--err-bg-light);
 
   @media (prefers-color-scheme: dark) {
     --bg: var(--bg-dark);
     --surface: var(--surface-dark);
     --surface-2: var(--surface-2-dark);
     --border: var(--border-dark);
+    --input-border: var(--input-border-dark);
     --text: var(--text-dark);
     --muted: var(--muted-dark);
     --accent: var(--accent-dark);
@@ -1271,6 +1306,8 @@ WEB_HTML = r"""<!DOCTYPE html>
     --ok: var(--ok-dark);
     --ok-bg: var(--ok-bg-dark);
     --warn: var(--warn-dark);
+    --err: var(--err-dark);
+    --err-bg: var(--err-bg-dark);
   }
 
   @supports (color: light-dark(white, black)) {
@@ -1278,6 +1315,7 @@ WEB_HTML = r"""<!DOCTYPE html>
     --surface: light-dark(var(--surface-light), var(--surface-dark));
     --surface-2: light-dark(var(--surface-2-light), var(--surface-2-dark));
     --border: light-dark(var(--border-light), var(--border-dark));
+    --input-border: light-dark(var(--input-border-light), var(--input-border-dark));
     --text: light-dark(var(--text-light), var(--text-dark));
     --muted: light-dark(var(--muted-light), var(--muted-dark));
     --accent: light-dark(var(--accent-light), var(--accent-dark));
@@ -1285,6 +1323,8 @@ WEB_HTML = r"""<!DOCTYPE html>
     --ok: light-dark(var(--ok-light), var(--ok-dark));
     --ok-bg: light-dark(var(--ok-bg-light), var(--ok-bg-dark));
     --warn: light-dark(var(--warn-light), var(--warn-dark));
+    --err: light-dark(var(--err-light), var(--err-dark));
+    --err-bg: light-dark(var(--err-bg-light), var(--err-bg-dark));
   }
 
   color-scheme: light dark;
@@ -1354,13 +1394,150 @@ body {
 
 .user-form input {
   padding: 0.35rem 0.6rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border);
   border-radius: 6px;
   background: var(--surface-2);
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.875rem;
+  font-size: max(1rem, 0.875rem);
   inline-size: 9.5rem;
+}
+
+input:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+/* Visually hidden utility (keeps polite live region in accessibility tree) */
+.visually-hidden:where(:not(:focus-within, :active)) {
+  position: absolute !important;
+  clip-path: inset(50%) !important;
+  overflow: hidden !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* In-Browser Workshop Join Code Setup Card (modern-web-guidance compliant) */
+.setup-card {
+  border: 2px solid var(--accent);
+  background: var(--surface);
+}
+
+.setup-card h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.2rem;
+}
+
+.setup-lead {
+  margin: 0 0 1rem;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.setup-form {
+  display: grid;
+  gap: 1.1rem;
+  max-inline-size: 38rem;
+}
+
+.setup-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
+}
+
+.setup-field label {
+  font-weight: 700;
+  font-size: 0.92rem;
+  padding-block: 6px;
+  margin-block: -6px;
+}
+
+.setup-field input {
+  inline-size: 100%;
+  max-inline-size: 24rem;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: max(1rem, 1em);
+  padding: 0.65rem 0.8rem;
+  min-block-size: 48px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+@media (pointer: coarse) {
+  .setup-field input,
+  .setup-actions .btn {
+    min-block-size: 52px;
+  }
+}
+
+.field-hint {
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+
+.error-msg {
+  display: none;
+  color: var(--err);
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-block-start: 0.15rem;
+}
+
+.setup-field input:is(:user-invalid, .user-invalid-fallback) {
+  border-color: var(--err);
+  border-width: 2px;
+  background-color: var(--err-bg);
+}
+
+.setup-field input:is(:user-invalid, .user-invalid-fallback) ~ .error-msg {
+  display: block;
+}
+
+.setup-field input:required:user-valid {
+  border-color: var(--ok);
+  border-width: 2px;
+}
+
+.setup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.setup-actions .btn {
+  min-block-size: 48px;
+  padding-inline: 1.15rem;
+  font-size: 0.95rem;
+}
+
+.setup-status {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.setup-status[data-state="ok"] {
+  color: var(--ok);
+}
+
+.setup-status[data-state="error"] {
+  color: var(--err);
 }
 
 .btn {
@@ -1911,11 +2088,13 @@ table.matrix tbody th {
     <h1>Interactive Quest Lab &amp; Live Classroom Hub</h1>
   </div>
   <div class="controls">
-    <form class="user-form" id="user-form">
-      <label for="user-input">Attendee:</label>
-      <input id="user-input" name="user" type="text" placeholder="e.g. alice" autocomplete="off">
+    <form class="user-form" id="user-form" aria-labelledby="user-form-label" action="api/setup" method="POST">
+      <input type="hidden" name="csrf_token" value="__CSRF_TOKEN__">
+      <label id="user-form-label" for="user-input">Attendee:</label>
+      <input id="user-input" name="user" type="text" maxlength="16" placeholder="e.g. alice" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="done">
       <button type="submit" class="btn primary">Set</button>
     </form>
+    <button type="button" class="btn" id="reopen-setup-btn" hidden>Join Code</button>
     <span id="conn-pill" class="status-pill">Connecting...</span>
   </div>
 </header>
@@ -1929,6 +2108,65 @@ table.matrix tbody th {
 
   <section role="tabpanel" id="panel-quests" aria-labelledby="tab-quests" tabindex="0">
     <div class="panel-inner">
+      <section class="card setup-card" id="setup-card" aria-labelledby="setup-form-heading" hidden>
+        <h2 id="setup-form-heading">Join Today's Berkelium Workshop</h2>
+        <p class="setup-lead">
+          Enter the <strong>Workshop Join Code</strong> from the instructor's slide to install <code>~/.kube/config</code>
+          and personalize all YAML &amp; script files in your workspace. Fields marked <span aria-hidden="true">*</span> are required.
+        </p>
+        <form id="workshop-setup-form" class="setup-form" aria-labelledby="setup-form-heading" action="api/setup" method="POST">
+          <input type="hidden" name="csrf_token" value="__CSRF_TOKEN__">
+          <div class="setup-field">
+            <label for="setup-code">Workshop Join Code <span aria-hidden="true">*</span></label>
+            <input
+              type="text"
+              id="setup-code"
+              name="code"
+              required
+              placeholder="e.g. bk-2s38m"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
+              enterkeyhint="next"
+              data-error="setup-code-error"
+            >
+            <div id="setup-code-error" class="error-msg">
+              <span role="img" aria-label="Error">❌</span> Enter the Workshop Join Code shown on the slide.
+            </div>
+          </div>
+          <div class="setup-field">
+            <label for="setup-user">Attendee Name or Initials <span aria-hidden="true">*</span></label>
+            <input
+              type="text"
+              id="setup-user"
+              name="user"
+              required
+              maxlength="16"
+              pattern="[A-Za-z0-9][A-Za-z0-9._@-]*"
+              placeholder="e.g. alice"
+              aria-describedby="setup-user-help"
+              autocomplete="username"
+              autocorrect="off"
+              autocapitalize="none"
+              spellcheck="false"
+              enterkeyhint="done"
+              data-error="setup-user-error"
+            >
+            <span id="setup-user-help" class="field-hint">
+              1–16 letters or digits — stamps <code>-&lt;name&gt;</code> onto your pods &amp; jobs so classmates never collide.
+            </span>
+            <div id="setup-user-error" class="error-msg">
+              <span role="img" aria-label="Error">❌</span> Enter your LBNL username or initials (letters and numbers).
+            </div>
+          </div>
+          <div class="setup-actions">
+            <button type="submit" class="btn primary" id="setup-submit-btn">Connect &amp; Configure Workspace</button>
+            <button type="button" class="btn" id="setup-cancel-btn" hidden>Close</button>
+          </div>
+          <div id="setup-status" class="setup-status" role="status" aria-live="polite"></div>
+        </form>
+      </section>
       <div class="quest-layout">
         <nav class="quest-nav" aria-label="Quest Navigation">
           <div class="progress-box">
@@ -2004,11 +2242,17 @@ table.matrix tbody th {
 <script>
 const QUESTS = __QUESTS_JSON__;
 const INITIAL_USER = __INITIAL_USER_JSON__;
+const SUGGESTED_USER = __SUGGESTED_USER_JSON__;
+const INITIAL_CAN_SETUP = __CAN_SETUP_JSON__;
+const INITIAL_SETUP_COMPLETE = __SETUP_COMPLETE_JSON__;
+const CSRF_TOKEN = __CSRF_TOKEN_JSON__;
 
 let activeUser = '';
 let activeQuestIdx = 0;
 let latestSnap = null;
 let snippetCounter = 0;
+let setupManuallyOpen = false;
+let setupHideTimer = null;
 
 function sanitizeUser(raw) {
   return String(raw || '').trim().toLowerCase().replace(/@.*$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 16).replace(/-+$/g, '');
@@ -2181,9 +2425,10 @@ function renderQuestView() {
   );
   snippetCounter = 0;
 
-  const setupReminder = !activeUser
+  const setupCardEl = document.getElementById('setup-card');
+  const setupReminder = (!activeUser && (!setupCardEl || setupCardEl.hidden))
     ? `<div class="why-callout" style="border-inline-start-color:var(--warn);">
-        <strong>Set your attendee suffix above first!</strong> Run <code>./setup.sh &lt;your-name&gt;</code> in your terminal and enter the same name in the top-right box so live auto-verification tracks your pods &amp; jobs in <code>training-nov-26</code>.
+        <strong>Set your attendee suffix above first!</strong> Enter your workshop name in the top-right <strong>Attendee</strong> box so live auto-verification tracks your pods &amp; jobs in <code>training-nov-26</code>.
        </div>`
     : '';
 
@@ -2274,26 +2519,291 @@ function renderClassroomView() {
   }).join('');
 }
 
+const setupCard = document.getElementById('setup-card');
+const setupForm = document.getElementById('workshop-setup-form');
+const setupCodeInput = document.getElementById('setup-code');
+const setupUserInput = document.getElementById('setup-user');
+const setupSubmitBtn = document.getElementById('setup-submit-btn');
+const setupCancelBtn = document.getElementById('setup-cancel-btn');
+const setupStatusEl = document.getElementById('setup-status');
+const reopenSetupBtn = document.getElementById('reopen-setup-btn');
+
+// Required-field feedback ARIA sync + polite live region + WeakMap fallback (modern-web-guidance)
+const linkError = (el, shown) => {
+  const errorId = el.dataset?.error;
+  if (!errorId) return;
+  const ids = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter((id) => id && id !== errorId);
+  if (shown) ids.push(errorId);
+  if (ids.length) el.setAttribute('aria-describedby', ids.join(' '));
+  else el.removeAttribute('aria-describedby');
+};
+
+const announcer = document.createElement('div');
+announcer.setAttribute('aria-live', 'polite');
+announcer.classList.add('visually-hidden');
+document.body.append(announcer);
+let announceTimer;
+let announcedField;
+
+const spokenText = (node) => {
+  const copy = node.cloneNode(true);
+  copy.querySelectorAll('[aria-hidden="true"]').forEach((n) => n.remove());
+  copy.querySelectorAll('[role="img"][aria-label]').forEach((n) => n.replaceWith(`${n.getAttribute('aria-label')}: `));
+  return copy.textContent.replace(/\s+/g, ' ').trim();
+};
+
+const announceError = (el) => {
+  const error = document.getElementById(el.dataset.error);
+  if (!error) return;
+  const label = el.labels?.[0] ? `${spokenText(el.labels[0])}: ` : '';
+  clearTimeout(announceTimer);
+  announcer.textContent = '';
+  announcedField = el;
+  announceTimer = setTimeout(() => { announcer.textContent = label + spokenText(error); }, 500);
+};
+
+const flagged = new WeakSet();
+const announced = new WeakSet();
+const syncAria = (el, announce = false) => {
+  if (!el.matches?.('input, select, textarea')) return;
+  let invalid = false;
+  try { invalid = el.matches(':user-invalid'); } catch { return; }
+  if (invalid) {
+    if (announce && !announced.has(el)) {
+      announceError(el);
+      announced.add(el);
+    }
+    el.setAttribute('aria-invalid', 'true');
+    linkError(el, true);
+    flagged.add(el);
+  } else if (flagged.has(el) || el.getAttribute('aria-invalid') !== 'true') {
+    el.setAttribute('aria-invalid', 'false');
+    linkError(el, false);
+    flagged.delete(el);
+    announced.delete(el);
+    if (announcedField === el) {
+      clearTimeout(announceTimer);
+      announcer.textContent = '';
+    }
+  }
+};
+
+const UserInvalidFallback = (() => {
+  const dirtyState = new WeakMap();
+  const updateState = (input) => {
+    const isValid = input.validity.valid;
+    input.classList.toggle('user-invalid-fallback', !isValid);
+    input.classList.toggle('user-valid-fallback', isValid);
+    input.setAttribute('aria-invalid', isValid ? 'false' : 'true');
+    linkError(input, !isValid);
+  };
+  const handleEvent = (event) => {
+    const input = event.target;
+    if (event.type === 'reset') {
+      for (const control of (input.elements || [])) {
+        dirtyState.delete(control);
+        control.classList.remove('user-invalid-fallback', 'user-valid-fallback');
+        if (control.matches('input, select, textarea')) control.setAttribute('aria-invalid', 'false');
+        if (control.dataset?.error) linkError(control, false);
+      }
+      return;
+    }
+    if (!input.checkValidity) return;
+    if (event.type === 'invalid') {
+      dirtyState.set(input, { hasInteracted: true, hasBlurred: true });
+      updateState(input);
+      return;
+    }
+    if (event.type === 'input' || event.type === 'change') {
+      const state = dirtyState.get(input) || { hasInteracted: false, hasBlurred: false };
+      state.hasInteracted = true;
+      dirtyState.set(input, state);
+      if (state.hasBlurred) updateState(input);
+    } else if (event.type === 'blur') {
+      const state = dirtyState.get(input) || { hasInteracted: false, hasBlurred: false };
+      state.hasBlurred = true;
+      dirtyState.set(input, state);
+      if (state.hasInteracted) updateState(input);
+    }
+  };
+  const init = (root = document) => {
+    if (CSS.supports('selector(:user-invalid)')) return;
+    root.querySelectorAll('input, select, textarea').forEach((el) => {
+      if (!el.hasAttribute('aria-invalid')) el.setAttribute('aria-invalid', 'false');
+    });
+    root.addEventListener('blur', handleEvent, true);
+    root.addEventListener('input', handleEvent);
+    root.addEventListener('change', handleEvent);
+    root.addEventListener('invalid', handleEvent, true);
+    root.addEventListener('reset', handleEvent, true);
+  };
+  return { init };
+})();
+
+if (CSS.supports('selector(:user-invalid)')) {
+  document.querySelectorAll('input, select, textarea').forEach((el) => syncAria(el));
+  document.addEventListener('blur', (e) => syncAria(e.target, true), true);
+  document.addEventListener('input', (e) => {
+    if (e.target.dataset?.serverInvalid) {
+      delete e.target.dataset.serverInvalid;
+      e.target.setAttribute('aria-invalid', 'false');
+    }
+    if (e.target.hasAttribute('aria-invalid')) syncAria(e.target);
+  });
+  document.addEventListener('change', (e) => syncAria(e.target, true), true);
+  document.addEventListener('invalid', (e) => {
+    announced.add(e.target);
+    syncAria(e.target);
+  }, true);
+  document.addEventListener('reset', (e) => {
+    setTimeout(() => [...e.target.elements].forEach((el) => syncAria(el)));
+  }, true);
+} else {
+  UserInvalidFallback.init(setupForm);
+}
+
+function updateSetupVisibility() {
+  const canSetup = latestSnap ? Boolean(latestSnap.can_setup) : INITIAL_CAN_SETUP;
+  const setupComplete = latestSnap ? Boolean(latestSnap.setup_complete) : INITIAL_SETUP_COMPLETE;
+  reopenSetupBtn.hidden = !(canSetup && setupComplete);
+  setupCancelBtn.hidden = !setupComplete;
+  const shouldShow = canSetup && (!setupComplete || setupManuallyOpen);
+  setupCard.hidden = !shouldShow;
+  if (shouldShow && !setupUserInput.value) {
+    const guess = sanitizeUser(activeUser || (latestSnap && latestSnap.suggested_user) || SUGGESTED_USER);
+    if (guess) setupUserInput.value = guess;
+  }
+}
+
+reopenSetupBtn.addEventListener('click', () => {
+  clearTimeout(setupHideTimer);
+  setupManuallyOpen = true;
+  setupStatusEl.textContent = '';
+  delete setupStatusEl.dataset.state;
+  if (!setupUserInput.value && activeUser) setupUserInput.value = activeUser;
+  updateSetupVisibility();
+  renderQuestView();
+  setupCodeInput.focus();
+});
+
+setupCancelBtn.addEventListener('click', () => {
+  setupManuallyOpen = false;
+  setupStatusEl.textContent = '';
+  delete setupStatusEl.dataset.state;
+  updateSetupVisibility();
+  renderQuestView();
+  reopenSetupBtn.focus();
+});
+
+function applyActiveUser(nextUser) {
+  activeUser = sanitizeUser(nextUser);
+  userInput.value = activeUser;
+  if (activeUser) setupUserInput.value = activeUser;
+  localStorage.setItem('berkelium_training_user', activeUser);
+  const url = new URL(location.href);
+  if (activeUser) url.searchParams.set('user', activeUser);
+  else url.searchParams.delete('user');
+  history.replaceState(null, '', url);
+}
+
+setupForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  clearTimeout(setupHideTimer);
+  if (!setupForm.checkValidity()) {
+    const firstInvalid = setupForm.querySelector(':invalid');
+    if (firstInvalid) firstInvalid.focus();
+    return;
+  }
+  const codeVal = setupCodeInput.value.trim();
+  const userVal = sanitizeUser(setupUserInput.value);
+  if (!userVal) {
+    setupUserInput.dataset.serverInvalid = 'true';
+    setupUserInput.setAttribute('aria-invalid', 'true');
+    linkError(setupUserInput, true);
+    setupUserInput.focus();
+    return;
+  }
+  setupUserInput.value = userVal;
+  setupSubmitBtn.disabled = true;
+  setupSubmitBtn.textContent = 'Connecting & Configuring…';
+  delete setupStatusEl.dataset.state;
+  setupStatusEl.textContent = 'Fetching workshop kubeconfig and personalizing workspace manifests…';
+
+  try {
+    const res = await fetch('api/setup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-Token': CSRF_TOKEN,
+      },
+      body: JSON.stringify({ code: codeVal, user: userVal, csrf_token: CSRF_TOKEN }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      setupStatusEl.dataset.state = 'error';
+      setupStatusEl.innerHTML = `<span role="img" aria-label="Error">❌</span> ${esc(data.error || 'Setup failed — check the Join Code and try again.')}`;
+      if (data.field === 'code') {
+        setupCodeInput.dataset.serverInvalid = 'true';
+        setupCodeInput.setAttribute('aria-invalid', 'true');
+        setupCodeInput.focus();
+      } else if (data.field === 'user') {
+        setupUserInput.dataset.serverInvalid = 'true';
+        setupUserInput.setAttribute('aria-invalid', 'true');
+        setupUserInput.focus();
+      }
+      return;
+    }
+
+    applyActiveUser(data.user || userVal);
+    if (data.snapshot) latestSnap = data.snapshot;
+    setupCodeInput.value = '';
+    setupStatusEl.dataset.state = 'ok';
+    setupStatusEl.textContent = `✓ ${data.message || 'Workspace configured!'}`;
+    updateConnectionPill();
+    renderQuestView();
+    renderClassroomView();
+    setupHideTimer = setTimeout(() => {
+      setupManuallyOpen = false;
+      updateSetupVisibility();
+      renderQuestView();
+    }, 1800);
+  } catch {
+    setupStatusEl.dataset.state = 'error';
+    setupStatusEl.innerHTML = '<span role="img" aria-label="Error">❌</span> Network error reaching local Quest Lab server — try again.';
+  } finally {
+    setupSubmitBtn.disabled = false;
+    setupSubmitBtn.textContent = 'Connect & Configure Workspace';
+  }
+});
+
+function updateConnectionPill() {
+  const pill = document.getElementById('conn-pill');
+  if (!latestSnap) return;
+  if (latestSnap.connected) {
+    pill.dataset.live = 'true';
+    pill.textContent = latestSnap.mode === 'demo'
+      ? 'Demo Mode (Simulated)'
+      : `Live · ${latestSnap.namespace}`;
+  } else {
+    pill.dataset.live = 'false';
+    pill.textContent = latestSnap.mode === 'uninitialized'
+      ? (latestSnap.can_setup ? 'Setup Required' : 'Run ./setup.sh first')
+      : 'Cluster Unreachable';
+  }
+}
+
 async function pollState() {
   try {
     const res = await fetch('api/state', { cache: 'no-store' });
     latestSnap = await res.json();
-    if (!activeUser && latestSnap.local_user) {
-      activeUser = sanitizeUser(latestSnap.local_user);
-      document.getElementById('user-input').value = activeUser;
+    if (!activeUser && latestSnap.configured_user) {
+      applyActiveUser(latestSnap.configured_user);
+    } else if (!activeUser && !latestSnap.can_setup && latestSnap.local_user) {
+      applyActiveUser(latestSnap.local_user);
     }
-    const pill = document.getElementById('conn-pill');
-    if (latestSnap.connected) {
-      pill.dataset.live = 'true';
-      pill.textContent = latestSnap.mode === 'demo'
-        ? 'Demo Mode (Simulated)'
-        : `Live · ${latestSnap.namespace}`;
-    } else {
-      pill.dataset.live = 'false';
-      pill.textContent = latestSnap.mode === 'uninitialized'
-        ? 'Run ./setup.sh first'
-        : 'Cluster Unreachable';
-    }
+    updateConnectionPill();
+    updateSetupVisibility();
     renderQuestView();
     renderClassroomView();
   } catch {
@@ -2308,22 +2818,40 @@ const params = new URLSearchParams(location.search);
 if (params.get('view') === 'classroom') {
   selectTab(document.getElementById('tab-classroom'), false);
 }
-activeUser = sanitizeUser(params.get('user') || localStorage.getItem('berkelium_training_user') || INITIAL_USER);
 const userInput = document.getElementById('user-input');
+activeUser = sanitizeUser(params.get('user') || INITIAL_USER || (!INITIAL_CAN_SETUP ? localStorage.getItem('berkelium_training_user') : '') || '');
 userInput.value = activeUser;
+setupUserInput.value = activeUser || sanitizeUser(SUGGESTED_USER);
 
-document.getElementById('user-form').addEventListener('submit', (e) => {
+document.getElementById('user-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  activeUser = sanitizeUser(userInput.value);
-  userInput.value = activeUser;
-  localStorage.setItem('berkelium_training_user', activeUser);
-  const url = new URL(location.href);
-  if (activeUser) url.searchParams.set('user', activeUser);
-  else url.searchParams.delete('user');
-  history.replaceState(null, '', url);
+  const nextUser = sanitizeUser(userInput.value);
+  applyActiveUser(nextUser);
+  if (nextUser && latestSnap && latestSnap.can_setup && latestSnap.connected && nextUser !== latestSnap.configured_user) {
+    try {
+      const res = await fetch('api/setup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-CSRF-Token': CSRF_TOKEN,
+        },
+        body: JSON.stringify({ user: nextUser, csrf_token: CSRF_TOKEN }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok && data.snapshot) {
+        latestSnap = data.snapshot;
+        updateSetupVisibility();
+        renderClassroomView();
+      }
+    } catch {
+      // Fall back cleanly to client-side filter update
+    }
+  }
   renderQuestView();
 });
 
+updateSetupVisibility();
 renderQuestView();
 pollState();
 setInterval(pollState, 2500);
@@ -2402,12 +2930,17 @@ def _load_join_bundle() -> tuple[str, bytes] | None:
 
 def make_http_handler(k8s: K8sClient):
     quests_json_str = json.dumps(QUESTS)
+    csrf_token = secrets.token_urlsafe(24)
     rate_lock = threading.Lock()
+    setup_lock = threading.Lock()
     failed_attempts: dict[str, list[float]] = {}
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt: str, *args: Any) -> None:
             return
+
+        def _send_json(self, code: int, obj: dict[str, Any]) -> None:
+            self._send_bytes(code, "application/json; charset=utf-8", json.dumps(obj).encode("utf-8"))
 
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
@@ -2468,14 +3001,144 @@ def make_http_handler(k8s: K8sClient):
                 self._send_bytes(200, "application/json; charset=utf-8", body)
                 return
             if parsed.path in ("/", "/index.html"):
+                k8s._maybe_reload_transport()
+                configured_u = read_configured_user()
+                suggested_u = read_local_user()
+                can_setup = k8s.can_local_setup()
+                setup_complete = bool(
+                    (not can_setup)
+                    or (k8s.mode in ("rest-kubeconfig", "kubectl") and configured_u)
+                )
                 html_bytes = (
                     WEB_HTML.replace("__QUESTS_JSON__", quests_json_str)
-                    .replace("__INITIAL_USER_JSON__", json.dumps(read_local_user()))
+                    .replace("__INITIAL_USER_JSON__", json.dumps(configured_u))
+                    .replace("__SUGGESTED_USER_JSON__", json.dumps(suggested_u))
+                    .replace("__CAN_SETUP_JSON__", json.dumps(can_setup))
+                    .replace("__SETUP_COMPLETE_JSON__", json.dumps(setup_complete))
+                    .replace("__CSRF_TOKEN_JSON__", json.dumps(csrf_token))
+                    .replace("__CSRF_TOKEN__", csrf_token)
                     .encode("utf-8")
                 )
                 self._send_bytes(200, "text/html; charset=utf-8", html_bytes)
                 return
             self._send_bytes(404, "text/plain; charset=utf-8", b"Not Found")
+
+        def do_POST(self) -> None:
+            parsed = urllib.parse.urlparse(self.path)
+            if parsed.path not in ("/api/setup", "/setup"):
+                self._send_json(404, {"ok": False, "error": "Not Found"})
+                return
+            if not k8s.can_local_setup():
+                self._send_json(403, {"ok": False, "error": "Local workspace setup is disabled on the shared classroom hub."})
+                return
+
+            sec_site = self.headers.get("Sec-Fetch-Site", "").strip().lower()
+            if sec_site and sec_site not in ("same-origin", "none"):
+                self._send_json(403, {"ok": False, "error": "Cross-site requests are not permitted."})
+                return
+
+            try:
+                content_len = int(self.headers.get("Content-Length", "0"))
+            except ValueError:
+                content_len = 0
+            if content_len <= 0 or content_len > 16384:
+                self._send_json(400, {"ok": False, "error": "Invalid request payload."})
+                return
+
+            raw_body = self.rfile.read(content_len).decode("utf-8", "replace")
+            ctype = self.headers.get("Content-Type", "").lower()
+            if "application/json" in ctype:
+                try:
+                    payload = json.loads(raw_body)
+                    if not isinstance(payload, dict):
+                        payload = {}
+                except Exception:
+                    self._send_json(400, {"ok": False, "error": "Invalid JSON body."})
+                    return
+            else:
+                form_qs = urllib.parse.parse_qs(raw_body, keep_blank_values=True)
+                payload = {k: (v[0] if v else "") for k, v in form_qs.items()}
+
+            provided_csrf = (
+                self.headers.get("X-CSRF-Token", "").strip()
+                or str(payload.get("csrf_token") or "").strip()
+            )
+            if not provided_csrf or not hmac.compare_digest(provided_csrf, csrf_token):
+                self._send_json(403, {"ok": False, "error": "Page session refreshed — reload the page and try again."})
+                return
+
+            raw_code = str(payload.get("code") or "").strip()
+            user = sanitize_user(str(payload.get("user") or ""))
+            if not user:
+                self._send_json(
+                    400,
+                    {"ok": False, "error": "Enter your LBNL username or initials (letters and numbers).", "field": "user"},
+                )
+                return
+
+            k8s._maybe_reload_transport()
+            already_has_kc = k8s.mode in ("rest-kubeconfig", "kubectl")
+            if not raw_code and not already_has_kc:
+                self._send_json(
+                    400,
+                    {"ok": False, "error": "Enter the Workshop Join Code shown on the instructor's slide.", "field": "code"},
+                )
+                return
+            if raw_code.startswith("-"):
+                self._send_json(
+                    400,
+                    {"ok": False, "error": "Invalid Workshop Join Code — check the code on the slide.", "field": "code"},
+                )
+                return
+
+            setup_sh = os.path.join(REPO_ROOT, "setup.sh")
+            cmd = ["/bin/bash", setup_sh]
+            if raw_code:
+                cmd.extend(["--code", raw_code, user])
+            else:
+                cmd.append(user)
+
+            with setup_lock:
+                try:
+                    proc = subprocess.run(
+                        cmd,
+                        cwd=REPO_ROOT,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        timeout=25,
+                    )
+                except subprocess.TimeoutExpired:
+                    self._send_json(504, {"ok": False, "error": "Setup timed out contacting the cluster — try again."})
+                    return
+
+                if proc.returncode != 0:
+                    err_lines = [ln.strip() for ln in (proc.stderr or proc.stdout or "").splitlines() if ln.strip()]
+                    err_msg = err_lines[-1] if err_lines else "Invalid Workshop Join Code — double-check the slide."
+                    self._send_json(
+                        400,
+                        {"ok": False, "error": err_msg, "field": "code" if raw_code else "user"},
+                    )
+                    return
+
+                k8s._init_transport()
+                snap = k8s.get_snapshot(force=True)
+
+            accept_hdr = self.headers.get("Accept", "").lower()
+            if "application/json" not in accept_hdr and "application/json" not in ctype:
+                dest = f"/?user={urllib.parse.quote(user)}"
+                self._send_bytes(303, "text/plain; charset=utf-8", b"Redirecting...", extra_headers={"Location": dest})
+                return
+
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    "user": user,
+                    "snapshot": snap,
+                    "message": f"Connected to {snap.get('namespace')}! Installed ~/.kube/config and personalized manifests with '-{user}'.",
+                },
+            )
 
         def _send_bytes(
             self,
