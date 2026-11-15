@@ -28,11 +28,9 @@ For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk
 
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
 2. Click **Templates** → choose **`Kubernetes CLI & Workshop`** (`k8s-cli` — lightweight `2` CPU / `4` GB workspace that boots in ~5 seconds with `kubectl`, `k9s`, & `python3` pre-installed).
-3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace** *(or clone inside the terminal below)*.
-4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh`:
+3. Click **Create Workspace** — `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` is already pre-filled and cloned automatically into `~/berkelium-training-nov-26`!
+4. Open **Web Terminal** (or **code-server** VS Code Web, which opens directly inside `~/berkelium-training-nov-26`) and run:
    ```bash
-   git clone https://github.com/lbnl-science-it/berkelium-training-nov-26.git ~/berkelium-training-nov-26 2>/dev/null || true
-   cd ~/berkelium-training-nov-26
    ./setup.sh
    ```
    - **Prompt 1 (`Workshop Join Code`)**: Enter the short code shown on the instructor's slide / Zoom chat (e.g., `bk-7k9m`). `./setup.sh` fetches a 24-hour workshop `kubeconfig` from the internal training hub and installs `~/.kube/config` (`chmod 600`) automatically so plain `kubectl` works in every terminal tab!
