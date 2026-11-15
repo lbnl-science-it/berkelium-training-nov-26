@@ -12,7 +12,7 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 | Time | Duration | Module | Directory | What You Will Do |
 | :--- | :--- | :--- | :--- | :--- |
-| `00:00–00:12` | **12 min** | **00. Coder Cloud Workspaces** | [`scripts/00-coder/`](scripts/00-coder/) | Launch a Coder workspace (`cloud-native` or `cuda`), verify `/home/coder` persistence & PyTorch GPU, and see Coder CLI / Remote-SSH. |
+| `00:00–00:12` | **12 min** | **00. Coder Cloud Workspaces** | [`scripts/00-coder/`](scripts/00-coder/) | Launch a Coder workspace (`k8s-cli` or `cuda`), verify `/home/coder` persistence & PyTorch GPU, and see Coder CLI / Remote-SSH. |
 | `00:12–00:19` | **7 min** | **01. Nodes & Interactive Pods** | [`scripts/01-nodes-and-pods/`](scripts/01-nodes-and-pods/) | Inspect Berkelium Talos/IPv6 nodes & `LimitRange`, run single- and multi-container pods, view logs, and `kubectl exec`. |
 | `00:19–00:29` | **10 min** | **02. GPUs, DRA & Dynamic MIG** | [`scripts/02-gpu-pods/`](scripts/02-gpu-pods/) | Discover `B300`/`H200`/`H100`/`A100`/`A40`/`MI100` accelerators, run `nvidia-smi` via Extended Resources, claim GPUs via Kubernetes DRA, and carve a **Dynamic MIG** slice. |
 | `00:29–00:37` | **8 min** | **03. Storage (`ceph-rbd`, `cephfs`, NVMe)** | [`scripts/03-storage/`](scripts/03-storage/) | Compare RWO block (`ceph-rbd`), RWX shared POSIX (`cephfs`), and ephemeral node-local NVMe scratch (`emptyDir`). |
@@ -27,7 +27,7 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 For the live workshop, **everyone runs inside Berkelium Coder (`https://coder.bk.lbl.gov`)**—it works from any browser over standard HTTPS with **zero VPN, zero IPv6 setup, and zero local installs**, while keeping cluster credentials out of public GitHub:
 
 1. Sign in to **[coder.bk.lbl.gov](https://coder.bk.lbl.gov)** with your LBNL SSO credentials.
-2. Click **Templates** → choose **`Cloud-Native & Systems (Go + Rust)`** (`cloud-native` — starts in ~10 seconds with `kubectl`, `k9s`, & `python3` pre-installed) or **`PyTorch / CUDA Deep Learning`** (`cuda`).
+2. Click **Templates** → choose **`Kubernetes CLI & Workshop`** (`k8s-cli` — lightweight `2` CPU / `4` GB workspace that boots in ~5 seconds with `kubectl`, `k9s`, & `python3` pre-installed).
 3. Paste `https://github.com/lbnl-science-it/berkelium-training-nov-26.git` into **Git Repository URL (Optional)** and click **Create Workspace** *(or clone inside the terminal below)*.
 4. Open **Web Terminal** (or **code-server** VS Code Web) and run `./setup.sh`:
    ```bash
@@ -85,7 +85,7 @@ Directory: [`scripts/00-coder/`](scripts/00-coder/)
 1. **Explore Templates at [coder.bk.lbl.gov](https://coder.bk.lbl.gov)**:
    - **AI & Agents**: `ai-agents` (Claude Code, OpenCode, Aider, Gemini CLI, Codex pre-wired to **LBNL CBorg** `api.cborg.lbl.gov`), `openclaw`, `vllm`, `ollama-webui`, `comfyui`.
    - **GPU & Data Science**: `cuda` (PyTorch `2.14+cu130` with native NVIDIA B300 Blackwell support, JupyterLab, TensorBoard), `data-lab` (Marimo, DuckDB, Polars), `bio-chem-lab`, `rstudio`.
-   - **Desktops, VMs & Systems**: `selkies` (GPU KDE Plasma), `desktop` (XFCE noVNC), `kubevirt` (full KVM Linux VM with `systemd` & Docker), `cloud-native`, `golang`, `nodejs`, `universal`.
+   - **Desktops, VMs & Systems**: `selkies` (GPU KDE Plasma), `desktop` (XFCE noVNC), `kubevirt` (full KVM Linux VM with `systemd` & Docker), `k8s-cli`, `cloud-native`, `golang`, `nodejs`, `universal`.
 2. **Verify Your Workspace & Run PyTorch Check** (inside your Coder terminal):
    ```bash
    ./scripts/00-coder/01-verify-coder-workspace.sh
