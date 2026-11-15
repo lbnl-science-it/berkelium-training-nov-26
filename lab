@@ -255,19 +255,19 @@ EOF""",
         "duration": "8 min",
         "module": "04-deployments-services-ingresses",
         "why": (
-            "Berkelium uses an IPv6 pod/service network and exposes HTTPS web apps via Kubernetes "
-            "Gateway API (HTTPRoute attached to gateway/ingress on *.bk.lbl.gov) instead of legacy Ingress."
+            "Berkelium uses an IPv6 pod/service network and exposes live HTTPS web apps via Kubernetes "
+            "Gateway API (HTTPRoute attached to gateway/ingress on https://*.bk.lbl.gov) instead of legacy Ingress."
         ),
         "checks": [
             {
                 "id": "4a",
-                "title": "Run 2+ replica Deployment test-http-{u} + IPv6 Service test-svc-{u}",
-                "detail": "Deploy scripts/04-deployments-services-ingresses/01-http-deployment.yaml & 03-service.yaml.",
+                "title": "Deploy 2-replica web app test-http-{u} + internal IPv6 Service test-svc-{u}",
+                "detail": "Apply 01-http-deployment.yaml (each Pod serves its own hostname) & 03-service.yaml.",
             },
             {
                 "id": "4b",
-                "title": "Attach HTTPRoute test-http-route-{u} with status Accepted=True",
-                "detail": "Expose training-demo-{u}.bk.lbl.gov on central Envoy Gateway (gateway/ingress).",
+                "title": "Expose https://training-demo-{u}.bk.lbl.gov via HTTPRoute & curl it live",
+                "detail": "Apply 04-httproute.yaml (Accepted=True), then run 'curl https://training-demo-{u}.bk.lbl.gov' (must include https://!) from Coder to see Envoy load-balance across both Pods—or open the https:// URL in your browser on LBL Wi-Fi/VPN.",
             },
         ],
         "starter_cmds": [
@@ -275,18 +275,24 @@ EOF""",
             "kubectl apply -f scripts/04-deployments-services-ingresses/01-http-deployment.yaml",
             "kubectl apply -f scripts/04-deployments-services-ingresses/03-service.yaml",
             "kubectl apply -f scripts/04-deployments-services-ingresses/04-httproute.yaml",
+            "curl -s https://training-demo-{u}.bk.lbl.gov",
+            "for i in 1 2 3 4; do curl -s https://training-demo-{u}.bk.lbl.gov; echo; done",
         ],
         "hint": (
-            "Apply all three manifests in scripts/04-deployments-services-ingresses/:\n"
-            "  01-http-deployment.yaml, 03-service.yaml, and 04-httproute.yaml\n"
-            "Then inspect the allocated IPv6 ClusterIP and Envoy Gateway acceptance:\n"
-            "  kubectl get svc test-svc-{u}\n"
-            "  kubectl describe httproute test-http-route-{u}"
+            "1) Apply all three manifests (Deployment -> Service -> HTTPRoute).\n"
+            "2) Check the IPv6 ClusterIP and Envoy Gateway status:\n"
+            "     kubectl get svc test-svc-{u}\n"
+            "     kubectl describe httproute test-http-route-{u}\n"
+            "3) Test your live HTTPS endpoint from inside Coder (be sure to include https://):\n"
+            "     curl https://training-demo-{u}.bk.lbl.gov\n"
+            "   Run it 3–4 times and watch 'Served by test-http-{u}-...' alternate between your 2 Pod replicas!\n"
+            "   (On LBL campus Wi-Fi or VPN, you can also open https://training-demo-{u}.bk.lbl.gov in your browser.)"
         ),
         "solution_cmds": [
             "kubectl apply -f scripts/04-deployments-services-ingresses/01-http-deployment.yaml -f scripts/04-deployments-services-ingresses/03-service.yaml -f scripts/04-deployments-services-ingresses/04-httproute.yaml",
             "kubectl wait --for=condition=Available deployment/test-http-{u} --timeout=120s",
             "kubectl get svc test-svc-{u} && kubectl get httproute test-http-route-{u}",
+            "for i in 1 2 3 4; do curl -s https://training-demo-{u}.bk.lbl.gov; echo; done",
         ],
     },
     {

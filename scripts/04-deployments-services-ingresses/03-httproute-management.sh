@@ -1,7 +1,7 @@
 #!/bin/bash
 source "$(dirname "$0")/../_common.sh" "$@"
 
-init_exercise "04.3 — Expose HTTPS Web Service via Gateway API HTTPRoute" 4
+init_exercise "04.3 — Expose HTTPS Web Service via Gateway API HTTPRoute" 5
 
 step "Inspect the Gateway API HTTPRoute manifest (attaches to gateway/ingress)" \
   "cat 04-httproute.yaml"
@@ -11,6 +11,9 @@ step "Apply Deployment, Service, and HTTPRoute" \
 
 step "Verify Envoy Gateway accepted and programmed the HTTPRoute" \
   "sleep 3 && kubectl get httproute test-http-route && kubectl describe httproute test-http-route | tail -n 25"
+
+step "Curl the live HTTPS endpoint 4 times to see Envoy load-balance across both Pod replicas" \
+  "for i in 1 2 3 4; do curl -s https://training-demo.bk.lbl.gov; echo; done"
 
 step "Clean up all Module 04 resources" \
   "kubectl delete httproute test-http-route --ignore-not-found && kubectl delete pod test-curl-pod --ignore-not-found && kubectl delete service test-svc --ignore-not-found && kubectl delete deployment test-http --ignore-not-found"
