@@ -50,7 +50,10 @@ Complete the workshop as **6 live-verified hands-on quests** (including real "Br
 | **Terminal TUI** | `./lab` | Mouse-copyable terminal quest tracker (`1`–`6` quests, `h` hint, `s` exact solution, `b` live classroom board, `w` launch web UI). |
 | **Instructor Projector (LBL Wi-Fi / VPN)** | Open **`https://training-hub.bk.lbl.gov/?view=classroom`** | Live classroom leaderboard + real-time Berkelium GPU/Dynamic MIG pool telemetry. |
 
-> **CLI quick checks:** Run `./lab --check` anytime for a one-shot checklist summary, or `./lab --board` to print the classroom leaderboard in plain text. Your verified quest checkmarks persist in `ConfigMap/lab-state-<your-name>` even after you delete pods/jobs to free GPUs!
+> **Go at Your Own Pace (All Skill Levels Welcome):**
+> - **New to Kubernetes?** We don't expect newcomers to finish all 6 quests inside the 1-hour session! Completing **3–4 quests** during class is a great milestone, **Hint** / **Solution** buttons are always available if you get stuck, and your Coder workspace + 24-hour token stay active for the rest of the day.
+> - **Already experienced with Kubernetes?** Quests unlock in **any order**—feel free to skip the intro exercises and jump straight to **Quest 02** (DRA `firstAvailable` & Dynamic MIG), **Quest 05** (Indexed parallel sweeps & CUDA 13.0 BF16), or **Quest 06** (`06-boss-job.yaml`)!
+> - **CLI quick checks:** Run `./lab --check` anytime for a one-shot checklist summary, or `./lab --board` to print the classroom leaderboard in plain text. Your verified quest checkmarks persist in `ConfigMap/lab-state-<your-name>` even after you delete pods/jobs to free GPUs!
 
 ### Guided Step-by-Step Scripts (Alternative / Reference Mode)
 1. **Interactive Walkthrough Menu (`./scripts/run-walkthrough.sh`)**: Prefer guided terminal exercises over `Quest Lab`? Run `./scripts/run-walkthrough.sh` to step through all **20 exercises across Modules `01`–`06`** in order (or jump directly to any module with `./scripts/run-walkthrough.sh m2`).

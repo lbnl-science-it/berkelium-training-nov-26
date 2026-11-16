@@ -1662,6 +1662,13 @@ summary:focus-visible {
   transition: inline-size 0.25s ease;
 }
 
+.pacing-note {
+  margin: 0.55rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
 .quest-item-btn {
   display: flex;
   align-items: center;
@@ -2176,6 +2183,9 @@ table.matrix tbody th {
               <span id="user-score-label">0 / 11</span>
             </div>
             <div class="progress-bar"><div class="progress-fill" id="user-progress-fill" style="inline-size:0%"></div></div>
+            <p class="pacing-note">
+              <strong>Self-paced &amp; any order:</strong> New to K8s? No need to finish all 6 in class—aim for 3–4 quests (workspace stays live 24h!). Experienced? Skip straight to Q02 GPUs, Q05 Sweeps, or Q06 Boss.
+            </p>
           </div>
           <div id="quest-nav-items"></div>
         </nav>
