@@ -8,17 +8,19 @@ In **60 minutes**, this hands-on session covers both ways researchers work on Be
 
 ---
 
-## 60-Minute Agenda
+## 60-Minute Format (Intro + Self-Paced Quests)
 
-| Time | Duration | Module | Directory | What You Will Do |
+We spend the first **~20 minutes together** covering Kubernetes 101 and connecting your browser workspace, followed by **~40 minutes of self-paced hands-on quests** (in **any order** — newcomers typically complete 3–4 quests during class with 24h workspace access afterwards, while experienced K8s users can jump straight to Quests `02`, `05`, or `06`):
+
+| Format | Est. Time | Quest / Module | Directory | What You Will Do |
 | :--- | :--- | :--- | :--- | :--- |
-| `00:00–00:12` | **12 min** | **00. Coder Cloud Workspaces** | [`coder.bk.lbl.gov`](https://coder.bk.lbl.gov) | Launch `Kubernetes CLI & Workshop` (`k8s-cli`), open `Quest Lab`, enter today's Join Code, and open `code-server`. |
-| `00:12–00:19` | **7 min** | **01. Nodes & Interactive Pods** | [`scripts/01-nodes-and-pods/`](scripts/01-nodes-and-pods/) | Inspect Berkelium Talos/IPv6 nodes & `LimitRange`, run single- and multi-container pods, view logs, and `kubectl exec`. |
-| `00:19–00:29` | **10 min** | **02. GPUs, DRA & Dynamic MIG** | [`scripts/02-gpu-pods/`](scripts/02-gpu-pods/) | Discover `B300`/`H200`/`H100`/`A100`/`A40`/`MI100` accelerators, run `nvidia-smi` via Extended Resources, claim GPUs via Kubernetes DRA, and carve a **Dynamic MIG** slice. |
-| `00:29–00:37` | **8 min** | **03. Storage (`ceph-rbd`, `cephfs`, NVMe)** | [`scripts/03-storage/`](scripts/03-storage/) | Compare RWO block (`ceph-rbd`), RWX shared POSIX (`cephfs`), and ephemeral node-local NVMe scratch (`emptyDir`). |
-| `00:37–00:45` | **8 min** | **04. Web Apps & `HTTPRoute`** | [`scripts/04-deployments-services-ingresses/`](scripts/04-deployments-services-ingresses/) | Deploy & scale a web service, load-balance via IPv6 `ClusterIP`, and expose HTTPS traffic via Gateway API `HTTPRoute`. |
-| `00:45–00:52` | **7 min** | **05. Batch & Parallel Sweep Jobs** | [`scripts/05-jobs/`](scripts/05-jobs/) | Run unattended CPU jobs, **Indexed Parallel Parameter Sweeps** (`JOB_COMPLETION_INDEX`), and a PyTorch CUDA 13.0 GPU benchmark job. |
-| `00:52–01:00` | **8 min** | **06. Debugging, Metrics & Policies + Q&A** | [`scripts/06-debugging/`](scripts/06-debugging/) | Diagnose crashed pods, inspect `kubectl top` metrics, catch policy violations (Gatekeeper & Berkelium MCP), and clean up. |
+| **Together (`00:00–00:20`)** | **~20 min** | **00. K8s 101 & Coder Setup** | [`coder.bk.lbl.gov`](https://coder.bk.lbl.gov) | Walkthrough of K8s 101 + YAML basics, launch `Kubernetes CLI & Workshop` (`k8s-cli`), enter today's Join Code in `Quest Lab`, and open `code-server`. |
+| **Self-Paced (`00:20–01:00`)** | **~7 min** | **01. Nodes & Interactive Pods** | [`scripts/01-nodes-and-pods/`](scripts/01-nodes-and-pods/) | Fix `challenges/01-broken-pod.yaml` (`limits` + command), launch a 2-container sidecar pod, view logs, and `kubectl exec`. |
+| **Self-Paced (Any Order)** | **~10 min** | **02. GPUs, DRA & Dynamic MIG** | [`scripts/02-gpu-pods/`](scripts/02-gpu-pods/) | Discover `B300`/`H200`/`H100`/`A100`/`A40`/`MI100` pools, claim a GPU via DRA `firstAvailable`, and carve an on-demand **Dynamic MIG** slice. |
+| **Self-Paced (Any Order)** | **~8 min** | **03. Storage (`ceph-rbd`, `cephfs`, NVMe)** | [`scripts/03-storage/`](scripts/03-storage/) | Fix `challenges/03-broken-storage.yaml` and compare RWO (`ceph-rbd`), RWX (`cephfs`), and node-local NVMe scratch (`emptyDir`). |
+| **Self-Paced (Any Order)** | **~8 min** | **04. Web Apps & `HTTPRoute`** | [`scripts/04-deployments-services-ingresses/`](scripts/04-deployments-services-ingresses/) | Deploy a 2-replica HTTP app, load-balance via IPv6 `ClusterIP`, and expose live HTTPS via Gateway API `HTTPRoute`. |
+| **Self-Paced (Any Order)** | **~7 min** | **05. Batch & Parallel Sweep Jobs** | [`scripts/05-jobs/`](scripts/05-jobs/) | Run unattended CPU jobs, **Indexed Parallel Parameter Sweeps** (`JOB_COMPLETION_INDEX`), and a PyTorch CUDA 13.0 BF16 benchmark job. |
+| **Self-Paced (Any Order)** | **~8 min** | **06. Debugging, Audit & Boss Quest** | [`scripts/06-debugging/`](scripts/06-debugging/) | Audit & fix all 4 Golden Rule violations in `challenges/06-boss-job.yaml`, inspect live metrics, and run `./scripts/cleanup-all.sh`. |
 
 ---
 
