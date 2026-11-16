@@ -15,9 +15,9 @@ spec:
           requests:
             cpu: 500m
             memory: 1Gi
-            # Choose an available GPU pool: nvidia.com/h200, nvidia.com/a40, nvidia.com/a100, nvidia.com/h100, nvidia.com/b300
-            nvidia.com/h200: "1"
+            # Choose an available GPU pool: nvidia.com/rtx6000, nvidia.com/a40, nvidia.com/h200, nvidia.com/a100, nvidia.com/h100, nvidia.com/b300
+            nvidia.com/rtx6000: "1"
           limits:
             cpu: "1"
             memory: 2Gi
-            nvidia.com/h200: "1"
+            nvidia.com/rtx6000: "1"

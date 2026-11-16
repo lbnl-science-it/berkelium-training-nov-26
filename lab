@@ -131,12 +131,12 @@ EOF""",
             {
                 "id": "2a",
                 "title": "Allocate a GPU via DRA (dra-gpu-pod-{u} Running) or nvidia-smi-job-{u} Complete",
-                "detail": "Uses ResourceClaimTemplate 'firstAvailable' across A40/H200/A100/H100/B300 + 2Gi /dev/shm.",
+                "detail": "Uses ResourceClaimTemplate 'firstAvailable' across RTX6000/A40/H200/A100/H100/B300 + 2Gi /dev/shm.",
             },
             {
                 "id": "2b",
                 "title": "Carve an on-demand Dynamic MIG slice (dynamic-mig-job-{u} Succeeded)",
-                "detail": "Uses deviceClassName: mig.nvidia.com with a CEL selector for 1g.10gb / 1g.18gb / 1g.34gb.",
+                "detail": "Uses deviceClassName: mig.nvidia.com with a CEL selector for 1g.10gb / 1g.18gb / 1g.24gb / 1g.34gb.",
             },
         ],
         "starter_cmds": [
@@ -431,6 +431,7 @@ KNOWN_RESOURCE_PREFIXES = sorted(
         "multi-container-pod-",
         "parallel-sweep-job-",
         "training-gpu-claim-",
+        "pytorch-gpu-claim-",
         "nvme-scratch-pod-",
         "dynamic-mig-job-",
         "gpu-pytorch-job-",
@@ -1136,7 +1137,12 @@ def _summarize_gpu_telemetry(
                 except ValueError:
                     pass
         if gpu_cnt == 0:
-            gpu_cnt = 8 if "B300" in model or "H100" in model or "A100" in model else 4
+            try:
+                gpu_cnt = int(labels.get("nvidia.com/gpu.count", "0"))
+            except ValueError:
+                gpu_cnt = 0
+        if gpu_cnt == 0:
+            gpu_cnt = 8 if any(t in model for t in ("B300", "H200", "H100")) else (2 if "RTX" in model else 4)
 
         node_to_model[nname] = model
         entry = pools.setdefault(
@@ -1167,13 +1173,14 @@ def _summarize_gpu_telemetry(
     for rc in resourceclaims:
         alloc = rc.get("status", {}).get("allocation") or {}
         for dev_res in alloc.get("devices", {}).get("results") or []:
-            if dev_res.get("driver") == "gpu.nvidia.com" and "mig" in (dev_res.get("pool", "") + rc.get("metadata", {}).get("name", "")):
-                for entry in pools.values():
-                    if any(tag in entry["model"] for tag in ("H200", "B300", "A100", "H100")):
-                        entry["mig_slices"] += 1
-                        break
+            pool_node = dev_res.get("pool", "")
+            dev_name = dev_res.get("device", "")
+            if dev_res.get("driver") == "gpu.nvidia.com" and ("mig" in dev_name or "mig" in rc.get("metadata", {}).get("name", "")):
+                m_key = node_to_model.get(pool_node)
+                if m_key and m_key in pools:
+                    pools[m_key]["mig_slices"] += 1
 
-    order = {"B300": 0, "H200": 1, "H100": 2, "A100": 3, "A40": 4, "MI100": 5}
+    order = {"B300": 0, "H200": 1, "RTX": 2, "H100": 3, "A100": 4, "A40": 5, "MI100": 6}
     return sorted(
         pools.values(),
         key=lambda x: next((rank for k, rank in order.items() if k in x["model"]), 99),

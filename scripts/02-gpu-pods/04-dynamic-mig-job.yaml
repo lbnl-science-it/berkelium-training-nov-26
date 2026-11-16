@@ -13,8 +13,8 @@ spec:
           count: 1
           selectors:
           - cel:
-              # Matches a 1-slice hardware-isolated MIG partition on A100/H100 (1g.10gb), H200 (1g.18gb), or B300 (1g.34gb)
-              expression: device.attributes["gpu.nvidia.com"].profile in ["1g.10gb", "1g.18gb", "1g.34gb"]
+              # Matches a 1-slice hardware-isolated MIG partition on A100/H100 (1g.10gb), H200 (1g.18gb), RTX PRO 6000 Blackwell (1g.24gb), or B300 (1g.34gb)
+              expression: device.attributes["gpu.nvidia.com"].profile in ["1g.10gb", "1g.18gb", "1g.24gb", "1g.34gb"]
 ---
 apiVersion: batch/v1
 kind: Job

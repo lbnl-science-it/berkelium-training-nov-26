@@ -9,6 +9,6 @@ kubectl delete deployment test-http --ignore-not-found
 kubectl delete service test-svc --ignore-not-found
 kubectl delete job nvidia-smi-job dynamic-mig-job cpu-job parallel-sweep-job gpu-pytorch-job boss-job --ignore-not-found
 kubectl delete pod test-pod multi-container-pod dra-gpu-pod rbd-pod cephfs-pod nvme-scratch-pod test-curl-pod failing-pod debug-pod broken-hostpath-pod quest1-pod quest3-pod --ignore-not-found
-kubectl delete resourceclaimtemplate training-gpu-claim mig-slice-claim --ignore-not-found
+kubectl delete resourceclaimtemplate training-gpu-claim mig-slice-claim pytorch-gpu-claim --ignore-not-found
 kubectl delete pvc rbd-pvc cephfs-pvc quest3-pvc boss-pvc broken-pvc --ignore-not-found
 echo "Cleanup complete!"

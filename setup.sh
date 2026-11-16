@@ -246,6 +246,7 @@ BASE_NAMES = [
     "parallel-sweep-job",
     "broken-hostpath-pod",
     "training-gpu-claim",
+    "pytorch-gpu-claim",
     "nvme-scratch-pod",
     "dynamic-mig-job",
     "gpu-pytorch-job",

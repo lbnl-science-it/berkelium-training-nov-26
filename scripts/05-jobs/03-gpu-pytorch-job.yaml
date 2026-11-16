@@ -1,3 +1,46 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: pytorch-gpu-claim
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        # Automatically selects whichever NVIDIA GPU pool (or Dynamic MIG slice) has free capacity!
+        firstAvailable:
+        - name: rtx6000
+          deviceClassName: nvidia-rtx6000
+          allocationMode: ExactCount
+          count: 1
+        - name: a40
+          deviceClassName: nvidia-a40
+          allocationMode: ExactCount
+          count: 1
+        - name: h200
+          deviceClassName: nvidia-h200
+          allocationMode: ExactCount
+          count: 1
+        - name: a100
+          deviceClassName: nvidia-a100
+          allocationMode: ExactCount
+          count: 1
+        - name: h100
+          deviceClassName: nvidia-h100
+          allocationMode: ExactCount
+          count: 1
+        - name: b300
+          deviceClassName: nvidia-b300
+          allocationMode: ExactCount
+          count: 1
+        - name: mig-slice
+          deviceClassName: mig.nvidia.com
+          allocationMode: ExactCount
+          count: 1
+          selectors:
+          - cel:
+              expression: device.attributes["gpu.nvidia.com"].profile in ["1g.10gb", "1g.18gb", "1g.24gb", "1g.34gb"]
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -7,9 +50,12 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      resourceClaims:
+      - name: gpu
+        resourceClaimTemplateName: pytorch-gpu-claim
       containers:
       - name: pytorch-benchmark
-        # Berkelium's local Harbor PyTorch 2.14 + CUDA 13.0 image (supports A40, A100, H100, H200, and B300 Blackwell!)
+        # Berkelium's local Harbor PyTorch 2.14 + CUDA 13.0 image (supports A40, A100, H100, H200, RTX PRO 6000 & B300 Blackwell!)
         image: harbor.bk.lbl.gov/coder-images/pytorch:a0d801e4
         command:
         - python3
@@ -32,8 +78,8 @@ spec:
           requests:
             cpu: "1"
             memory: 4Gi
-            nvidia.com/h200: "1"  # Or nvidia.com/a40, nvidia.com/b300, nvidia.com/h100, nvidia.com/a100
           limits:
             cpu: "4"
             memory: 8Gi
-            nvidia.com/h200: "1"
+          claims:
+          - name: gpu

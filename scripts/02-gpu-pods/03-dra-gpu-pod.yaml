@@ -7,8 +7,12 @@ spec:
     devices:
       requests:
       - name: gpu
-        # DRA 'firstAvailable' automatically picks the first GPU pool with free capacity!
+        # DRA 'firstAvailable' automatically picks the first GPU pool (or MIG slice) with free capacity!
         firstAvailable:
+        - name: rtx6000
+          deviceClassName: nvidia-rtx6000
+          allocationMode: ExactCount
+          count: 1
         - name: a40
           deviceClassName: nvidia-a40
           allocationMode: ExactCount
@@ -29,6 +33,13 @@ spec:
           deviceClassName: nvidia-b300
           allocationMode: ExactCount
           count: 1
+        - name: mig-slice
+          deviceClassName: mig.nvidia.com
+          allocationMode: ExactCount
+          count: 1
+          selectors:
+          - cel:
+              expression: device.attributes["gpu.nvidia.com"].profile in ["1g.10gb", "1g.18gb", "1g.24gb", "1g.34gb"]
 ---
 apiVersion: v1
 kind: Pod
